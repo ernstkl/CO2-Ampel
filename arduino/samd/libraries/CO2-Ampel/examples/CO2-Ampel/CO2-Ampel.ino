@@ -19,6 +19,7 @@
     2=X      - Range/Bereich 2 (400-40000)
     3=X      - Range/Bereich 3 (400-40000)
     4=X      - Range/Bereich 4 (400-40000)
+    5=X      - Range/Bereich 5 (400-40000)
 
   Testmodus
     1. Den Switch-Taster beim Einschalten gedrueckt halten.
@@ -39,12 +40,14 @@
 
 //--- CO2-Werte ---
 //Covid Praevention: https://www.umwelt-campus.de/forschung/projekte/iot-werkstatt/ideen-zur-corona-krise
+#define START_GRUEN         600 //>=600ppm, darunter blau
 #define START_GELB          800 //>= 800ppm
 #define START_ROT          1000 //>=1000ppm
 #define START_ROT_BLINKEN  1200 //>=1200ppm
 #define START_BUZZER       1400 //>=1400ppm
 
 //Ermuedung
+#define START_GRUEN         600 //>=600ppm, darunter blau
 /*
 #define START_GELB         1000 //>=1000ppm
 #define START_ROT          1200 //>=1200ppm
@@ -78,9 +81,10 @@
 #define DISPLAY_AUSGABE    0 //1 = Ausgabe auf Display aktivieren
 #define BAUDRATE           9600 //9600 Baud
 
-#define FARBE_GRUEN          0,255,0
-#define FARBE_GELB         255,127,0
-#define FARBE_ROT          255,  0,0
+#define FARBE_BLAU           0,  0,255
+#define FARBE_GRUEN          0,255,  0
+#define FARBE_GELB         255,127,  0
+#define FARBE_ROT          255,  0,  0
 
 #define STARTWERT          500 //500ppm, CO2-Startwert
 
@@ -103,7 +107,7 @@ typedef struct
   unsigned int brightness;
   unsigned int altitude;
   unsigned int temp_offset;
-  unsigned int range[4];
+  unsigned int range[5];
   char wifi_ssid[40];
   char wifi_code[40];
 } SETTINGS;
@@ -335,6 +339,7 @@ void serial_service(void)
       case '2': //Range/Bereich 2
       case '3': //Range/Bereich 3
       case '4': //Range/Bereich 4
+      case '5': //Range/Bereich 5
         i = Serial.readBytesUntil('\n', tmp, sizeof(tmp));
         if(i > 0)
         {
@@ -367,6 +372,7 @@ void serial_service(void)
       case '2': //Range/Bereich 2
       case '3': //Range/Bereich 3
       case '4': //Range/Bereich 4
+      case '5': //Range/Bereich 4
         Serial.println(settings.range[cmd-'1'], DEC);
         break;
     }
@@ -996,10 +1002,11 @@ void setup()
     {
       settings.temp_offset = TEMP_OFFSET;
     }
-    settings.range[0]     = START_GELB;
-    settings.range[1]     = START_ROT;
-    settings.range[2]     = START_ROT_BLINKEN;
-    settings.range[3]     = START_BUZZER;
+    settings.range[0]     = START_GRUEN;
+    settings.range[1]     = START_GELB;
+    settings.range[2]     = START_ROT;
+    settings.range[3]     = START_ROT_BLINKEN;
+    settings.range[4]     = START_BUZZER;
     settings.wifi_ssid[0] = 0;
     strcpy(settings.wifi_ssid, WIFI_SSID);
     settings.wifi_code[0] = 0;
@@ -1082,17 +1089,22 @@ void ampel(unsigned int co2)
   static unsigned int blinken=0;
 
   //LEDs
-  if(co2 < settings.range[0]) //gruen
+  if(co2 < settings.range[0]) //blau
+  {
+    blinken = 0;
+    ws2812.fill(ws2812.Color(FARBE_BLAU), 0, NUM_LEDS);
+  }
+  else if(co2 < settings.range[1]) //gruen
   {
     blinken = 0;
     ws2812.fill(ws2812.Color(FARBE_GRUEN), 0, NUM_LEDS);
   }
-  else if(co2 < settings.range[1]) //gelb
+  else if(co2 < settings.range[2]) //gelb
   {
     blinken = 0;
     ws2812.fill(ws2812.Color(FARBE_GELB), 0, NUM_LEDS);
   }
-  else if(co2 < settings.range[2]) //rot
+  else if(co2 < settings.range[3]) //rot
   {
     blinken = 0;
     ws2812.fill(ws2812.Color(FARBE_ROT), 0, NUM_LEDS);
@@ -1112,7 +1124,7 @@ void ampel(unsigned int co2)
   ws2812.show(); //zeige Farbe
 
   //Buzzer
-  if(co2 < settings.range[3])
+  if(co2 < settings.range[4])
   {
     analogWrite(PIN_BUZZER, 0); //Buzzer aus
   }
