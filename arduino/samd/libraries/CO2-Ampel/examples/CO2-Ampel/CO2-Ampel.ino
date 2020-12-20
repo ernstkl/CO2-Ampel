@@ -511,7 +511,6 @@ void webserver_service(void)
           client.print(settings.wifi_ssid);
           client.println("'><br>");
           client.print("Code <input name=2 size=20 maxlength=32 placeholder=Password value='");
-          client.print(settings.wifi_code);
           client.println("'><br>");
           client.println("<input type=submit value=Speichern> (Neustart erforderlich)");
           client.println("</form>");
