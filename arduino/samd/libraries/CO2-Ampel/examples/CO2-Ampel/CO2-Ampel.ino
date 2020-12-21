@@ -85,6 +85,8 @@
 #define DISPLAY_AUSGABE    0 //1 = Ausgabe auf Display aktivieren
 #define BAUDRATE           9600 //9600 Baud
 
+#include "my-defines.h"
+
 #define FARBE_BLAU           0,  0,255
 #define FARBE_GRUEN          0,255,  0
 #define FARBE_GELB         255,127,  0
