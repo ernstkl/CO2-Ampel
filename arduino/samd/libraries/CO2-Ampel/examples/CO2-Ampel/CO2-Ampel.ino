@@ -34,29 +34,33 @@
     4. Die Kalibrierung wird nach dem Sensor-Test ausgeführt und dauert mindestens 2 Minuten.
        Die LEDs zeigen dabei den aktuellen CO2-Wert an: gruen bis 499ppm, gelb bis 699ppm, rot ab 700ppm
     5. Nach erfolgreicher Kalibrierung leuchten die LEDs kurz blau und der Buzzer ertoent.
+
+  Beim Flashen einer neuen Firmware gehen alle Einstellungen verloren (z.B. Hoehenkorrektur).
+  Die Kalibrierung des Sensors bleibt jedoch erhalten.
+
 */
 
 #define VERSION "8"
 
 //--- CO2-Werte ---
 //Covid Praevention: https://www.umwelt-campus.de/forschung/projekte/iot-werkstatt/ideen-zur-corona-krise
+/*
 #define START_GRUEN         600 //>=600ppm, darunter blau
 #define START_GELB          800 //>= 800ppm
 #define START_ROT          1000 //>=1000ppm
 #define START_ROT_BLINKEN  1200 //>=1200ppm
 #define START_BUZZER       1400 //>=1400ppm
+*/
 
 //Ermuedung
 #define START_GRUEN         600 //>=600ppm, darunter blau
-/*
 #define START_GELB         1000 //>=1000ppm
 #define START_ROT          1200 //>=1200ppm
 #define START_ROT_BLINKEN  1400 //>=1400ppm
 #define START_BUZZER       1600 //>=1600ppm
-*/
 
 //--- Messintervall ---
-#define INTERVALL            3 //2-1800s (normal)
+#define INTERVALL            5 //2-1800s (normal)
 #define INTERVALL_DUNKEL    30 //2-1800s (bei Dunkelheit)
 
 //--- Ampelhelligkeit (LEDs) ---
