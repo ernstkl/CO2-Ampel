@@ -35,6 +35,10 @@
        Die LEDs zeigen dabei den aktuellen CO2-Wert an: gruen bis 499ppm, gelb bis 699ppm, rot ab 700ppm
     5. Nach erfolgreicher Kalibrierung leuchten die LEDs kurz blau und der Buzzer ertoent.
 
+  Die ad hoc Kalibrierung (wie C=1) kann auch über die Ampel-Web-Seite ausgeführt werden.
+  Passcode sind die vier exemplarspezifischen Buchstaben im Netzwerk-Namen der Ampel
+  in lower case, also z.B. abcd für die CO2AMPEL-AB-CD.
+
   Beim Flashen einer neuen Firmware gehen alle Einstellungen verloren (z.B. Hoehenkorrektur).
   Die Kalibrierung des Sensors bleibt jedoch erhalten.
 
@@ -131,7 +135,7 @@ unsigned int plus_version=0, remote_on=0;
 unsigned int co2=STARTWERT, co2_average=STARTWERT;
 unsigned int light=1024;
 float temp=0, humi=0;
-
+char calib_passcode[5];
 
 unsigned int light_sensor(void) //Auslesen des Lichtsensors
 {
@@ -469,6 +473,10 @@ void webserver_service(void)
             char req[2][40];
             req[0][0] = 0; //SSID
             req[1][0] = 0; //Code
+
+            unsigned int calib_req=0;
+            char req_passcode[5]; //4 character passcode
+
             for(unsigned int r=0, i=0, last_c=0; client.available();)
             {
               c = client.read();
@@ -487,6 +495,12 @@ void webserver_service(void)
                 req[r-1][i] = 0;
                 req_data = 1;
               }
+              else if((r == 3) && (i < 4)) //3 (calibration passcode)
+              {
+                req_passcode[i++] = c;
+                req_passcode[i] = 0;
+                calib_req = 1;
+              }
               last_c = c;
             }
             if(req_data)
@@ -499,6 +513,20 @@ void webserver_service(void)
               strcpy(settings.wifi_code, req[1]);
               flash_settings.write(settings); //Einstellungen speichern
             }
+            if(calib_req)
+            {
+              urldecode(req_passcode);
+              Serial.print("got passcode: ");
+              Serial.println(req_passcode);
+              //Serial.print("expected: ");
+              //Serial.println(calib_passcode);
+              if(strncmp(req_passcode, calib_passcode, 4) == 0)
+              {
+                Serial.print("calibrating..");
+                sensor.setForcedRecalibrationFactor(400); //400ppm = Frischluft
+                Serial.println("done.");
+              }
+            }
           }
           //HTTP Header
           client.println("HTTP/1.1 200 OK");
@@ -507,7 +535,9 @@ void webserver_service(void)
           client.println();
           //HTML Daten
           client.println("<!DOCTYPE html>");
-          client.println("<html><head><title>CO2-Ampel</title></head>");
+          client.println("<html><head><title>CO2-Ampel</title>");
+          client.println("<meta http-equiv='content-type' content='text/html; charset=utf-8'>");
+          client.println("</head>");
           client.println("<body>");
           client.println("<br><span style='font-size:3em'>");
           client.print("CO2 (ppm): ");
@@ -516,6 +546,7 @@ void webserver_service(void)
           client.println(temp, 1);
           client.print("<br>Luftfeuchte (%): ");
           client.println(humi, 1);
+
           client.println("<br></span><br><hr><br>");
           client.print("<br><b>WiFi Login</b>");
           client.println("<form method=post>");
@@ -525,6 +556,14 @@ void webserver_service(void)
           client.print("Code <input name=2 size=20 maxlength=32 placeholder=Password value='");
           client.println("'><br>");
           client.println("<input type=submit value=Speichern> (Neustart erforderlich)");
+          client.println("</form>");
+          client.println("<br></span><br><hr><br>");
+
+          client.print("<br><b>Sensor-Kalibrierung (an Frischluft direkt auf 400 ppm setzen, wie C=1 über Seriell)</b>");
+          client.println("<form method=post>");
+          client.print("Passcode <input name=3 size=4 maxlength=4 placeholder=code>");
+          client.println("<br>");
+          client.println("<input type=submit value=Ausführen> (Kein Neustart erforderlich. Nach neu Laden der Seite sollte der angezeigte CO2 Wert = 400 ppm sein.)");
           client.println("</form>");
           client.println("</body></html>");
           break;
@@ -847,6 +886,9 @@ unsigned int wifi_start_ap(void)
   WiFi.macAddress(mac); //MAC-Adresse abfragen
   sprintf(ssid, "CO2AMPEL-%X-%X", mac[1], mac[0]);
 
+  // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
+  sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
+
   if((WiFi.status() == WL_CONNECTED) ||
      (WiFi.status() == WL_AP_CONNECTED))
   {
@@ -880,6 +922,9 @@ unsigned int wifi_start(void)
 
   WiFi.macAddress(mac); //MAC-Adresse abfragen
   sprintf(name, "CO2AMPEL-%X-%X", mac[1], mac[0]);
+
+  // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
+  sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
 
   if((WiFi.status() == WL_CONNECTED) ||
      (WiFi.status() == WL_AP_CONNECTED))
