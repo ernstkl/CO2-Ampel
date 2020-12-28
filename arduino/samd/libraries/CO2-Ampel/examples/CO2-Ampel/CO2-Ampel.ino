@@ -581,7 +581,7 @@ void webserver_service(void)
               if(strncmp(req_passcode, calib_passcode, 4) == 0)
               {
                 Serial.print("calibrating..");
-                sensor.setForcedRecalibrationFactor(400); //400ppm = Frischluft
+                scd30.setForcedRecalibrationFactor(400); //400ppm = Frischluft
                 Serial.println("done.");
               }
             }
