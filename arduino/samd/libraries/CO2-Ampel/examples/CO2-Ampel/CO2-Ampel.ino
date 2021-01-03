@@ -1463,6 +1463,16 @@ void loop()
   {
     t_ampel = millis(); //Zeit speichern
 
+    //Sensordaten auslesen
+    if(scd30.dataAvailable())
+    {
+      co2  = scd30.getCO2();
+      temp = scd30.getTemperature();
+      humi = scd30.getHumidity();
+
+      show_data();
+    }
+
     co2_average = (co2_average + co2) / 2; //Berechnung jede Sekunde
     
     status_led(2); //Status-LED
@@ -1470,16 +1480,6 @@ void loop()
   else if(overwrite == 0)
   {
     return;
-  }
-
-  //Sensordaten auslesen
-  if(scd30.dataAvailable())
-  {
-    co2  = scd30.getCO2();
-    temp = scd30.getTemperature();
-    humi = scd30.getHumidity();
-    
-    show_data();
   }
 
   //Ampel
