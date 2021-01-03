@@ -120,6 +120,8 @@ WiFiServer server(80); //Webserver Port 80 (Plus Version)
 
 unsigned int plus_version=0, remote_on=0;
 unsigned int co2=STARTWERT, co2_average=STARTWERT;
+unsigned int co2_old;
+float co2_grad=0, co2_grad_average=0;
 unsigned int light=1024;
 float temp=0, humi=0;
 char calib_passcode[5];
@@ -1417,7 +1419,8 @@ void ampel(unsigned int co2)
 void loop()
 {
   static unsigned int dunkel=0, sw=0;
-  static long long t_ampel=0, t_light=0, t_switch=0;
+  static long long t_ampel=0, t_light=0, t_switch=0, t_data=0;
+  float delta_t_s;
   unsigned int overwrite=0;
 
   //serielle Befehle verarbeiten
@@ -1466,14 +1469,37 @@ void loop()
     //Sensordaten auslesen
     if(scd30.dataAvailable())
     {
+      co2_old = co2;
       co2  = scd30.getCO2();
       temp = scd30.getTemperature();
       humi = scd30.getHumidity();
 
+      if (co2_old == 0) // first measurement: initialize with current value instead of STARTWERT
+      {
+        co2_old = co2;
+        co2_average = co2;
+      }
+
+      delta_t_s = (millis() - t_data) / 1000.; // Zeitintervall für Gradientenberechnung  
+      co2_grad = (float(co2) - float(co2_old)) / delta_t_s;
+      t_data = millis();
+      
       show_data();
+
+      Serial.print("dt: ");               //Mess-Intervall
+      Serial.println(delta_t_s);          //in Sekunden
+      Serial.print("dco2/dt raw: ");          //CO2 Gradient
+      Serial.println(co2_grad*3600.);     //Wert in ppm / h
+      Serial.println("");
     }
 
     co2_average = (co2_average + co2) / 2; //Berechnung jede Sekunde
+
+    // Gradient stärker filtern
+    co2_grad_average = 0.9 * co2_grad_average + 0.1 * co2_grad;
+    
+    Serial.print("dco2/dt filtered: ");     //CO2 Gradient
+    Serial.println(co2_grad_average*3600.);     //Wert in ppm / h
     
     status_led(2); //Status-LED
   }
