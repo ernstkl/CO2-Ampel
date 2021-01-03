@@ -75,8 +75,6 @@
 #define DISPLAY_AUSGABE    0 //1 = Ausgabe auf Display aktivieren
 #define BAUDRATE           9600 //9600 Baud
 
-#include "my-defines.h"
-
 #define STARTWERT          500 //500ppm, CO2-Startwert
 
 #define FARBE_BLAU         0x0000FF //  0,  0,255
@@ -86,6 +84,8 @@
 #define FARBE_VIOLETT      0xFF00FF //255,  0,255
 #define FARBE_WEISS        0xFFFFFF //255,255,255
 #define FARBE_AUS          0x000000 //  0,  0,  0
+
+#include "my-defines.h"
 
 
 #include <Wire.h>
