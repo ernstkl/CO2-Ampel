@@ -1228,6 +1228,7 @@ void setup()
 
   delay(250); //250ms warten
 
+  #if USE_WIFI > 0
   //ATECC608+ATWINC1500
   Wire1.beginTransmission(0x60); //Dummy Test
   Wire1.endTransmission();
@@ -1245,6 +1246,9 @@ void setup()
       WiFi.end();
     }
   }
+  #else
+  plus_version = 0;
+  #endif
 
   #if DISPLAY_AUSGABE > 0
     delay(500); //500ms warten
