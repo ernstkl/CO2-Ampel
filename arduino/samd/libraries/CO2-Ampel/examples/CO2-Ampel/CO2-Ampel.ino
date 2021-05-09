@@ -1423,6 +1423,9 @@ void setup()
     run_menu = 1;
   }
 
+  //Anfang des Startvorgangs signalisieren
+  long_short_beep();
+
   //WS2812
   ws2812.begin();
   ws2812.setBrightness(HELLIGKEIT); //0...255
@@ -1689,6 +1692,9 @@ void setup()
   {
     //Intervall 5s
   }
+
+  //Ende des Startvorgangs signalisieren
+  triple_beep();
 
   return;
 }
