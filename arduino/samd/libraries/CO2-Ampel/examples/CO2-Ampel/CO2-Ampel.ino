@@ -76,6 +76,9 @@
 #define FARBE_WEISS        0xFFFFFF //0xFFFFFF
 #define FARBE_AUS          0x000000 //0x000000
 
+//lokale Definitionen außerhalb git. Z.B. für WIFI_SSID, Helligkeit. h-Datei muss im Ordner mit der .ino-Datei liegen.
+#include "my-defines.h"
+
 
 #include <Wire.h>
 #include <SPI.h>
