@@ -138,6 +138,7 @@ unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
 float temp_value=20, humi_value=50, pres_value=1013, pres_last=1013;
 
 unsigned int notification_low_ppm_done=1;
+unsigned int notification_high_ppm_done=1;
 
 void leds(uint32_t color)
 {
@@ -1773,6 +1774,13 @@ void triple_beep() {
   short_beep();
 }
 
+// für Vorwarnung Lüftung erforderlich
+void long_short_beep() {
+  long_beep();
+  delay(150);
+  short_beep();
+}
+
 void loop()
 {
   static unsigned int dark=0, sw=0;
@@ -1876,6 +1884,18 @@ void loop()
         triple_beep();
         // weitere Benachrichtigungen abstellen
         notification_low_ppm_done = 1;
+    }
+  }
+
+  // analog dazu eine Vorwarnung 100ppm bevor die Buzzer-Warnung anfängt
+  if (co2_average < START_ROT_BLINKEN) {
+    notification_high_ppm_done = 0;  // Flag zurücksetzen, neue Benachrichtigung ermöglichen
+  } else if (co2_average > START_ROT_BLINKEN + 100) {
+    // Benachrichtigungs-Schwelle ist überschritten ("Vorwarnung buzzer")
+    if (notification_high_ppm_done == 0) {
+        long_short_beep();
+        // weitere Benachrichtigungen abstellen
+        notification_high_ppm_done = 1;
     }
   }
 
