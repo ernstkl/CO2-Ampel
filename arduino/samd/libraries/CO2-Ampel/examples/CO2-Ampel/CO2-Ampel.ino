@@ -83,6 +83,9 @@
 #define ADDR_BMP280        0x76 //0x76 or 0x77, Wire1=SERCOM2
 #define ADDR_ATECC608      0x60 //0x60, Wire1=SERCOM2
 
+//lokale Definitionen außerhalb git. Z.B. für WIFI_SSID, Helligkeit. h-Datei muss im Ordner mit der .ino-Datei liegen.
+#include "my-defines.h"
+
 //--- Features ---
 enum Features
 {
