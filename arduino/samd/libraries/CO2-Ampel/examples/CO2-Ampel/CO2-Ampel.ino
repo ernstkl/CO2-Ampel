@@ -144,10 +144,6 @@ Adafruit_SSD1306 display(128, 64); //128x64 Pixel
 //ECCX08Class ECCX08(Wire1, 0x60); //in ECCX08.cpp
 WiFiServer server(80); //Webserver Port 80
 
-unsigned int plus_version=0, remote_on=0, serialport=0;
-unsigned int co2=STARTWERT, co2_average=STARTWERT;
-unsigned int light=1024;
-float temp=0, humi=0;
 unsigned int features=0, remote_on=0;
 unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
 float temp_value=20, humi_value=50, pres_value=1013, pres_last=1013;
