@@ -150,6 +150,7 @@ WiFiServer server(80); //Webserver Port 80
 unsigned int features=0, remote_on=0, buzzer_timer=BUZZER_DELAY;
 unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
 float temp_value=20, temp_offset=TEMP_OFFSET, humi_value=50, pres_value=1013, pres_last=1013;
+
 char calib_passcode[5];
 
 
@@ -1421,6 +1422,9 @@ unsigned int wifi_start(void)
 
   WiFi.macAddress(mac); //MAC-Adresse abfragen
   sprintf(name, "CO2AMPEL-%X-%X", mac[1], mac[0]);
+
+  // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
+  sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
 
   // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
   sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
