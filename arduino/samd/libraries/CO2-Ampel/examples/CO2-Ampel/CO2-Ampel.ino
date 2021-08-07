@@ -30,7 +30,7 @@
 
 */
 
-#define VERSION "16"
+#define VERSION "18"
 
 //--- CO2-Werte ---
 //Covid Praevention: https://www.umwelt-campus.de/forschung/projekte/iot-werkstatt/ideen-zur-corona-krise
@@ -66,11 +66,14 @@
 #define WIFI_CODE          "" //WiFi Passwort
 
 //--- Allgemein ---
+#define PRO_AMPEL          0 //1 = Pro Version mit Drucksensor
+#define WIFI_AMPEL         0 //1 = Version mit WiFi/WLAN
 #define AMPEL_DURCHSCHNITT 1 //1 = CO2 Durchschnitt fuer Ampel verwenden
 #define AUTO_KALIBRIERUNG  0 //1 = automatische Kalibrierung (ASC) an (erfordert 7 Tage Dauerbetrieb mit 1h Frischluft pro Tag)
 #define BUZZER_DELAY     300 //300s, Buzzer Startverzögerung
 #define TEMP_OFFSET        4 //Temperaturoffset in °C (0-20)
-#define TEMP_OFFSET_WIFI   8 //Temperaturoffset in °C (0-20)
+#define TEMP_OFFSET_WIFI   8 //WiFi, Temperaturoffset in °C (0-20)
+#define TEMP_OFFSET_PRO    6 //Pro WiFi, Temperaturoffset in °C (0-20)
 #define DRUCK_DIFF         5 //Druckunterschied in hPa (5-20)
 #define BAUDRATE           9600 //9600 Baud
 #define STARTWERT          500 //500ppm, CO2-Startwert
@@ -146,7 +149,7 @@ WiFiServer server(80); //Webserver Port 80
 
 unsigned int features=0, remote_on=0, buzzer_timer=BUZZER_DELAY;
 unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
-float temp_value=20, humi_value=50, pres_value=1013, pres_last=1013;
+float temp_value=20, temp_offset=TEMP_OFFSET, humi_value=50, pres_value=1013, pres_last=1013;
 char calib_passcode[5];
 
 
@@ -264,12 +267,12 @@ unsigned int check_sensors(void) //Sensoren auslesen
       if(features & FEATURE_LPS22HB)
       {
         pres_value = lps22.readPressure()*10; //kPa -> hPa
-        temp_value = lps22.readTemperature()-TEMP_OFFSET;
+        temp_value = lps22.readTemperature()-temp_offset;
       }
       if(features & FEATURE_BMP280)
       {
         pres_value = bmp280.readPressure()/100; //Pa -> hPa
-        temp_value = bmp280.readTemperature()-TEMP_OFFSET;
+        temp_value = bmp280.readTemperature()-temp_offset;
       }
       if((pres_value < (pres_last-DRUCK_DIFF)) || (pres_value > (pres_last+DRUCK_DIFF)))
       {
@@ -292,12 +295,12 @@ unsigned int check_sensors(void) //Sensoren auslesen
       if(features & FEATURE_LPS22HB)
       {
         pres_value = lps22.readPressure()*10; //kPa -> hPa
-        temp_value = lps22.readTemperature()-TEMP_OFFSET;
+        temp_value = lps22.readTemperature()-temp_offset;
       }
       if(features & FEATURE_BMP280)
       {
         pres_value = bmp280.readPressure()/100; //Pa -> hPa
-        temp_value = bmp280.readTemperature()-TEMP_OFFSET;
+        temp_value = bmp280.readTemperature()-temp_offset;
       }
       if((pres_value < (pres_last-DRUCK_DIFF)) || (pres_value > (pres_last+DRUCK_DIFF)))
       {
@@ -416,7 +419,7 @@ void serial_service(void)
 
       case 'H': //LED Helligkeit
         i = Serial.readBytesUntil('\n', tmp, sizeof(tmp));
-        if(i > 0)
+        if(i >= 0)
         {
           tmp[i] = 0;
           sscanf(tmp, "%X", &val);
@@ -797,7 +800,7 @@ void webserver_service(void)
 }
 
 
-int check_i2c(Sercom *sercom, byte addr)
+int check_i2c(Sercom *sercom, byte addr) //1=okay
 {
   int res = 0;
   unsigned long t_start;
@@ -806,21 +809,14 @@ int check_i2c(Sercom *sercom, byte addr)
   {
     t_start = millis();
     sercom->I2CM.CTRLA.bit.ENABLE = 1; //enable master mode
-    delay(2); //wait 2ms
+    delay(10); //wait 10ms
     sercom->I2CM.ADDR.bit.ADDR = (addr<<1) | 0x00; //start transfer
-    while(1)
+    delay(10); //wait 10ms
+    if(sercom->I2CM.INTFLAG.bit.MB || sercom->I2CM.INTFLAG.bit.SB) //data transmitted
     {
-      delay(2); //wait 2ms
-      if(sercom->I2CM.INTFLAG.bit.MB || sercom->I2CM.INTFLAG.bit.SB) //data transmitted
+      if(!sercom->I2CM.STATUS.bit.RXNACK) //ack received
       {
-        if(!sercom->I2CM.STATUS.bit.RXNACK) //ack received
-        {
-          res = 1; //ok
-        }
-        break;
-      }
-      else if((millis()-t_start) > 20) //timeout after 20ms
-      {
+        res = 1; //ok
         break;
       }
     }
@@ -854,10 +850,6 @@ int check_i2c(Sercom *sercom, byte addr)
 
 void self_test(void) //Testprogramm
 {
-  unsigned int atecc, atwinc;
-  unsigned int co2, light;
-  float temp, humi, pres;
-
   //Buzzer-Test
   buzzer(1000); //1s Buzzer an
 
@@ -870,42 +862,45 @@ void self_test(void) //Testprogramm
   delay(1000); //1s warten
   leds(FARBE_AUS); //LEDs aus
 
-  //ATECC608+ATWINC1500-Test
-  atecc  = check_i2c(SERCOM2, ADDR_ATECC608);
-  atwinc = WiFi.status(); //ATWINC1500
-  if(atecc || (atwinc != WL_NO_SHIELD))
-  {
-    leds(FARBE_WEISS); //LEDs weiss
-    buzzer(1000); //1s Buzzer an
-    if(atecc != 0) //ATECC608 Fehler
+  #if WIFI_AMPEL
+    //ATECC608+ATWINC1500-Test
+    unsigned int atecc, atwinc;
+    atecc  = check_i2c(SERCOM2, ADDR_ATECC608);
+    atwinc = WiFi.status(); //ATWINC1500
+    if(atecc || (atwinc != WL_NO_SHIELD))
     {
-      if(features & FEATURE_USB)
+      leds(FARBE_WEISS); //LEDs weiss
+      buzzer(1000); //1s Buzzer an
+      if(atecc == 0) //ATECC608 Fehler
       {
-        Serial.println("Error: ATECC608");
+        if(features & FEATURE_USB)
+        {
+          Serial.println("Error: ATECC608");
+        }
+        while(1)
+        {
+          leds(FARBE_ROT); //LEDs rot
+          delay(500); //500ms warten
+          leds(FARBE_AUS); //LEDs aus
+          delay(500); //500ms warten
+        }
       }
-      while(1)
+      if(atwinc == WL_NO_SHIELD) //ATWINC1500 Fehler
       {
-        leds(FARBE_ROT); //LEDs rot
-        delay(500); //500ms warten
-        leds(FARBE_AUS); //LEDs aus
-        delay(500); //500ms warten
+        if(features & FEATURE_USB)
+        {
+          Serial.println("Error: ATWINC1500");
+        }
+        while(1)
+        {
+          leds(FARBE_ROT); //LEDs rot
+          delay(500); //500ms warten
+          leds(FARBE_GELB); //LEDs gelb
+          delay(500); //500ms warten
+        }
       }
     }
-    if(atwinc == WL_NO_SHIELD) //ATWINC1500 Fehler
-    {
-      if(features & FEATURE_USB)
-      {
-        Serial.println("Error: ATWINC1500");
-      }
-      while(1)
-      {
-        leds(FARBE_ROT); //LEDs rot
-        delay(500); //500ms warten
-        leds(FARBE_GELB); //LEDs gelb
-        delay(500); //500ms warten
-      }
-    }
-  }
+  #endif
 
   //RFM9X-Test
   SPI.begin();
@@ -923,6 +918,14 @@ void self_test(void) //Testprogramm
   }
 
   //Sensor-Test
+  unsigned int co2, light;
+  float temp, humi, pres;
+  co2_value  = 0;
+  temp_value = 0;
+  humi_value = 0;
+  #if PRO_AMPEL
+    pres_value = 0;
+  #endif
   ws2812.fill(FARBE_AUS, 0, 4); //LEDs aus
   for(unsigned int okay=0; okay < 15;)
   {
@@ -1500,17 +1503,20 @@ void setup()
 
   delay(250); //250ms warten
 
-  //ATECC608+ATWINC1500
-  if(check_i2c(SERCOM2, ADDR_ATECC608)) //ATECC608 gefunden
-  {
-    ECCX08.begin();
-    ECCX08.end();
-    features |= FEATURE_WINC1500;
-  }
-  else if(WiFi.status() != WL_NO_SHIELD)
-  {
-    features |= FEATURE_WINC1500;
-  }
+  #if WIFI_AMPEL
+    //ATECC608+ATWINC1500
+    if(check_i2c(SERCOM2, ADDR_ATECC608)) //ATECC608 gefunden
+    {
+      if(check_i2c(SERCOM2, ADDR_ATECC608))
+      {
+        features |= FEATURE_WINC1500;
+      }
+    }
+    else if(WiFi.status() != WL_NO_SHIELD) //ATWINC1500 gefunden
+    {
+      features |= FEATURE_WINC1500;
+    }
+  #endif
 
   //LPS22HB
   if(check_i2c(SERCOM2, ADDR_LPS22HB)) //LPS22HB gefunden
@@ -1624,6 +1630,23 @@ void setup()
     }
   }
 
+  //Temperaturoffset
+  if(features & FEATURE_WINC1500)
+  {
+    if(features & (FEATURE_LPS22HB|FEATURE_BMP280))
+    {
+      temp_offset = TEMP_OFFSET_PRO;
+    }
+    else
+    {
+      temp_offset = TEMP_OFFSET_WIFI;
+    }
+  }
+  else
+  {
+    temp_offset = TEMP_OFFSET;
+  }
+
   //Einstellungen
   settings = flash_settings.read(); //Einstellungen lesen
   if((settings.valid == false) || (settings.brightness > 255) || (settings.range[0] < 100))
@@ -1644,14 +1667,7 @@ void setup()
     {
       if(scd30.getTemperatureOffset() == 0)
       {
-        if(features & FEATURE_WINC1500)
-        {
-          scd30.setTemperatureOffset(TEMP_OFFSET_WIFI); //Temperaturoffset
-        }
-        else
-        {
-          scd30.setTemperatureOffset(TEMP_OFFSET); //Temperaturoffset
-        }
+        scd30.setTemperatureOffset(temp_offset); //Temperaturoffset
       }
     }
     else if(features & FEATURE_SCD4X)
@@ -1660,14 +1676,7 @@ void setup()
       scd4x.getTemperatureOffset(offset);
       if(offset == 0)
       {
-        if(features & FEATURE_WINC1500)
-        {
-          scd4x.setTemperatureOffset(TEMP_OFFSET_WIFI); //Temperaturoffset
-        }
-        else
-        {
-          scd4x.setTemperatureOffset(TEMP_OFFSET); //Temperaturoffset
-        }
+        scd4x.setTemperatureOffset(temp_offset); //Temperaturoffset
       }
     }
   }
@@ -1762,36 +1771,35 @@ void ampel(unsigned int co2)
   if(co2 < settings.range[0]) //blau
   {
     blinken = 0;
-    ws2812.fill(FARBE_BLAU, 0, NUM_LEDS);
+    leds(FARBE_BLAU);
   }
   else if(co2 < settings.range[1]) //gruen
   {
     blinken = 0;
-    ws2812.fill(FARBE_GRUEN, 0, NUM_LEDS);
+    leds(FARBE_GRUEN);
   }
   else if(co2 < settings.range[2]) //gelb
   {
     blinken = 0;
-    ws2812.fill(FARBE_GELB, 0, NUM_LEDS);
+    leds(FARBE_GELB);
   }
   else if(co2 < settings.range[3]) //rot
   {
     blinken = 0;
-    ws2812.fill(FARBE_ROT, 0, NUM_LEDS);
+    leds(FARBE_ROT);
   }
   else //rot blinken
   {
     if(blinken == 0)
     {
-      ws2812.fill(ws2812.Color(10,0,0), 0, NUM_LEDS);  //rot schwache Helligkeit
+      leds(ws2812.Color(10,0,0)); //rot schwache Helligkeit
     }
     else
     {
-      ws2812.fill(FARBE_ROT, 0, NUM_LEDS); //rot
+      leds(FARBE_ROT); //rot
     }
     blinken = 1-blinken; //invertieren
   }
-  ws2812.show(); //zeige Farbe
 
   //Buzzer
   if(co2 < settings.range[4])
@@ -1871,8 +1879,7 @@ void loop()
     {
       if(features & FEATURE_WINC1500)
       {
-        ws2812.fill(FARBE_VIOLETT, 0, 4); //LEDs violett
-        ws2812.show();
+        leds(FARBE_VIOLETT); //LEDs violett
         wifi_start_ap();
       }
     }
@@ -1972,7 +1979,10 @@ void loop()
         if(dark == 0)
         {
           dark = 1;
-          ws2812.setBrightness(HELLIGKEIT_DUNKEL); //0...255
+          if(settings.brightness > HELLIGKEIT_DUNKEL)
+          {
+            ws2812.setBrightness(HELLIGKEIT_DUNKEL); //dunkel
+          }
         }
       }
       else
@@ -1980,7 +1990,7 @@ void loop()
         if(dark == 1)
         {
           dark = 0;
-          ws2812.setBrightness(settings.brightness); //0...255
+          ws2812.setBrightness(settings.brightness); //hell
         }
       }
     }
