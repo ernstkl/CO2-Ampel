@@ -1426,9 +1426,6 @@ unsigned int wifi_start(void)
   // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
   sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
 
-  // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
-  sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
-
   if((WiFi.status() == WL_CONNECTED) ||
      (WiFi.status() == WL_AP_CONNECTED))
   {
