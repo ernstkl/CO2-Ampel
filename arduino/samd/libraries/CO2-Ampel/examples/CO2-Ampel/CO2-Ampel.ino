@@ -64,6 +64,7 @@
 //--- WiFi/WLAN ---
 #define WIFI_SSID          "" //WiFi SSID
 #define WIFI_CODE          "" //WiFi Passwort
+#define MQTT_SERVER        ""
 
 //--- Allgemein ---
 #define PRO_AMPEL          0 //1 = Pro Version mit Drucksensor
@@ -120,6 +121,7 @@ enum Features
 #include <Adafruit_NeoPixel.h>
 #include <ArduinoECCX08.h>
 #include <WiFi101.h>
+#include <PubSubClient.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
@@ -147,12 +149,19 @@ Adafruit_SSD1306 display(128, 64); //128x64 Pixel
 //ECCX08Class ECCX08(Wire1, 0x60); //in ECCX08.cpp
 WiFiServer server(80); //Webserver Port 80
 
+// network connection objects for MQTT
+WiFiClient mqtt_wifi_client;
+PubSubClient mqtt_client(mqtt_wifi_client);
+
+char mqtt_topic[15];
+char mqtt_client_name[16];
+char mqtt_msg[5]; // maximal vierstellige Zahl plus null byte
+
 unsigned int features=0, remote_on=0, buzzer_timer=BUZZER_DELAY;
 unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
 float temp_value=20, temp_offset=TEMP_OFFSET, humi_value=50, pres_value=1013, pres_last=1013;
 
 char calib_passcode[5];
-
 
 unsigned int notification_low_ppm_done=1;
 unsigned int notification_high_ppm_done=1;
@@ -351,6 +360,22 @@ void show_data(void) //Daten anzeigen
   return;
 }
 
+void send_data_mqtt(void) // Daten auf mqtt-topic senden: tele/co2/ab-cd
+
+//TODO Ausführung des Codes schaltbar machen über Ampel-Webseite (2 Buttons)
+{
+  if (!mqtt_client.connected()) 
+  {
+    // connect or reconnect
+    if (!mqtt_client.connect(mqtt_client_name)) 
+    {
+      return;
+    }
+  }
+  sprintf(mqtt_msg, "%d", co2_value);
+  mqtt_client.publish(mqtt_topic, mqtt_msg);
+  mqtt_client.loop();  
+}
 
 void serial_service(void)
 {
@@ -1451,6 +1476,16 @@ unsigned int wifi_start(void)
   return 0;
 }
 
+void mqtt_start() 
+{
+  byte mac[6];
+  WiFi.macAddress(mac); //MAC-Adresse abfragen
+  sprintf(mqtt_topic, "tele/co2/%x-%x", mac[1], mac[0]);
+
+  sprintf(mqtt_client_name, "CO2AMPEL-%X-%X", mac[1], mac[0]);
+
+  mqtt_client.setServer(MQTT_SERVER, 1883);
+}
 
 void setup()
 {
@@ -1745,6 +1780,8 @@ void setup()
     }
   }
 
+  mqtt_start();
+
   //Messung starten
   co2_value = co2_average = STARTWERT;
   if(features & FEATURE_SCD30)
@@ -1919,6 +1956,7 @@ void loop()
     if(check_sensors())
     {
       show_data();
+      send_data_mqtt();
       if(dark == 0)
       {
         status_led(2); //Status-LED
