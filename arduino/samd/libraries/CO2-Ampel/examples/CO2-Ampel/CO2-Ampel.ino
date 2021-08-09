@@ -364,10 +364,20 @@ void show_data(void) //Daten anzeigen
 void send_data_mqtt(void) // Daten auf mqtt-topic senden: tele/co2/<ab-cd>
 //TODO Ausführung des Codes schaltbar machen über Ampel-Webseite (2 Buttons)
 {
-  if (settings.mqtt_server[0] == 0) {
+  if (settings.mqtt_server[0] == 0) 
+  {
     // not configured
     return;
   }
+
+  if ((WiFi.status() == WL_CONNECT_FAILED) ||
+     (WiFi.status() == WL_CONNECTION_LOST) || 
+     (WiFi.status() == WL_DISCONNECTED))
+  { 
+    Serial.println("mqtt: no Wifi");
+    return;
+  }
+
 
   if (!mqtt_client.connected()) 
   {
