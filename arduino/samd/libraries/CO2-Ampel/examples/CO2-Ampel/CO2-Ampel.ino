@@ -811,6 +811,16 @@ void webserver_service(void)
           client.println("'><br>");
           client.println("<input type=submit value=Speichern> (Neustart erforderlich)");
           client.println("</form>");
+
+          client.println("<br></span><br><hr><br>");
+          client.print("<br><b>MQTT Server</b>");
+          client.println("<form method=post>");
+          client.print("Hostname oder IP-Adresse <input name=1 size=20 maxlength=64 placeholder=MQTT Server value='");
+          client.print(settings.mqtt_server); //MQTT Server
+          client.println("'><br>");
+          client.println("<input type=submit value=Speichern> (Neustart erforderlich)");
+          client.println("</form>");
+
           client.println("<br></span><br><hr><br>");
 
           client.print("<br><b>Sensor-Kalibrierung an Frischluft: calibration() Prozedur starten wie über Menu (3), 2 min</b>");
