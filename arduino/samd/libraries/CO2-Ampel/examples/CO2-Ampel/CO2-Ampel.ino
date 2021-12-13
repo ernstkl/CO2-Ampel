@@ -380,7 +380,7 @@ void send_data_mqtt(void) // Daten auf mqtt-topic senden: tele/co2/<ab-cd>
     Serial.println(" done.");
   }
 
-  sprintf(mqtt_msg, "%d", co2_value);
+  sprintf(mqtt_msg, "%d", co2_average);
   mqtt_client.publish(mqtt_topic, mqtt_msg);
   mqtt_client.loop();  
 }
@@ -1843,7 +1843,7 @@ void ampel(unsigned int co2)
 void loop()
 {
   static unsigned int dark=0, sw=0;
-  static unsigned long t_ampel=0, t_light=0, t_switch=0;
+  static unsigned long t_ampel=0, t_mqtt=0, t_light=0, t_switch=0;
   unsigned int overwrite=0;
 
   //serielle Befehle verarbeiten
@@ -1910,8 +1910,6 @@ void loop()
     {
       show_data();
 
-      send_data_mqtt();
-
       if(dark == 0)
       {
         status_led(2); //Status-LED
@@ -1923,6 +1921,13 @@ void loop()
   else if(overwrite == 0)
   {
     return;
+  }
+
+  if((millis()-t_mqtt) > 10000) //MQTT Nachricht nur alle 10 Sek
+  {
+    t_mqtt = millis(); //Zeit speichern
+
+    send_data_mqtt();
   }
 
   //Ampel
