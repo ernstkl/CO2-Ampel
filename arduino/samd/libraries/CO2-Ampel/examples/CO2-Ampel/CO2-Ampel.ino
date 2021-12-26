@@ -1764,7 +1764,7 @@ void ampel(unsigned int co2)
 void loop()
 {
   static unsigned int dark=0, sw=0;
-  static unsigned long t_ampel=0, t_light=0, t_switch=0;
+  static unsigned long t_ampel=1000000, t_light=1000000, t_switch=0;
   unsigned int overwrite=0;
 
   //serielle Befehle verarbeiten
