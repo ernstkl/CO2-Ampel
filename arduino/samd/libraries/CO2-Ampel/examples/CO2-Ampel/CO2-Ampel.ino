@@ -363,7 +363,7 @@ void send_data_mqtt(void) // Daten auf mqtt-topic senden: tele/co2/<ab-cd>
 
   if (!mqtt_client.connected()) 
   {
-    // connect or reconnect - timeout is 20s, even with mqtt_client.setSocketTimeout(2)
+    // connect or reconnect - timeout is 2 (hardcoded in WiFiSocket.cpp)
     Serial.print("mqtt: connecting to ");
     Serial.print(settings.mqtt_server);
     Serial.print(" ...");
