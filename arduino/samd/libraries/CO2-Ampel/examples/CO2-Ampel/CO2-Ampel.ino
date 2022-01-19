@@ -713,6 +713,10 @@ void webserver_service(void)
             char req[2][64+1];
             req[0][0] = 0; //SSID
             req[1][0] = 0; //Code
+
+            unsigned int mqtt_server_req=0;
+            char mqtt_server[64+1];
+
             for(unsigned int r=0, i=0, last_c=0; client.available();)
             {
               c = client.read();
@@ -731,6 +735,12 @@ void webserver_service(void)
                 req[r-1][i] = 0;
                 req_data = 1;
               }
+	      else if((r == 3)) //3 (mqtt server name)
+              {
+                mqtt_server[i++] = c;
+                mqtt_server[i] = 0;
+                mqtt_server_req = 1;
+              }
               last_c = c;
             }
             if(req_data)
@@ -741,6 +751,13 @@ void webserver_service(void)
               urldecode(req[1]);
               //Serial.println(req[1]);
               strcpy(settings.wifi_code, req[1]);
+              flash_settings.write(settings); //Einstellungen speichern
+            }
+            if(mqtt_server_req)
+            {
+              urldecode(mqtt_server);
+              //Serial.println(mqtt_server);
+              strcpy(settings.mqtt_server, mqtt_server);
               flash_settings.write(settings); //Einstellungen speichern
             }
           }
@@ -780,7 +797,7 @@ void webserver_service(void)
           client.println("<br></span><br><hr><br>");
           client.print("<br><b>MQTT Server</b>");
           client.println("<form method=post>");
-          client.print("Hostname oder IP-Adresse <input name=1 size=20 maxlength=64 placeholder=MQTT Server value='");
+          client.print("Hostname oder IP-Adresse <input name=3 size=20 maxlength=64 placeholder=MQTT Server value='");
           client.print(settings.mqtt_server); //MQTT Server
           client.println("'><br>");
           client.println("<input type=submit value=Speichern> (Neustart erforderlich)");
