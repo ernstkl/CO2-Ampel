@@ -8,12 +8,16 @@
   Serielle Befehle
     R=0      - Remote/Fernsteuerung aus
     R=1      - Remote/Fernsteuerung an
+    V?       - Firmwareversion abfragen
     S=1      - Save/Speichern
     L=RRGGBB - LED-Farbe (000000-FFFFFF)
     H=X      - LED-Helligkeit (0-FF)
-    B=1      - Buzzer an 500ms
+    B=0      - Buzzer deaktiviert
+    B=1      - Buzzer aktiviert und an für 500ms
     T=X      - Temperaturoffset in °C (0-20)
+    T?       - Temperaturoffset abfragen
     A=X      - Altitude/Hoehe ueber dem Meeresspiegel (0-3000)
+    A?       - Altitude abfragen
     C=1      - Calibration/Kalibrierung auf 400ppm (mind. 2min Betrieb an Frischluft vor Befehl)
     1=X      - Range/Bereich 1 Start (400-10000) - gruen
     2=X      - Range/Bereich 2 Start (400-10000) - gelb
@@ -22,24 +26,25 @@
     5=X      - Range/Bereich 5 Start (400-10000) - rot + Buzzer
 */
 
-#define VERSION "20"
+#define VERSION "22"
+#define COVID 0 //1=COVID CO2-Werte
 
 //--- CO2-Werte ---
+#if COVID
 //Covid Praevention: https://www.umwelt-campus.de/forschung/projekte/iot-werkstatt/ideen-zur-corona-krise
-#define START_GRUEN         600 //>= 600ppm
-#define START_GELB          800 //>= 800ppm
-#define START_ROT          1000 //>=1000ppm
-#define START_ROT_BLINKEN  1200 //>=1200ppm
-#define START_BUZZER       1400 //>=1400ppm
-
+  #define START_GRUEN         600 //>= 600ppm
+  #define START_GELB          800 //>= 800ppm
+  #define START_ROT          1000 //>=1000ppm
+  #define START_ROT_BLINKEN  1200 //>=1200ppm
+  #define START_BUZZER       1400 //>=1400ppm
+#else
 //Ermuedung
-/*
-#define START_GRUEN         600 //>= 600ppm
-#define START_GELB         1000 //>=1000ppm
-#define START_ROT          1200 //>=1200ppm
-#define START_ROT_BLINKEN  1400 //>=1400ppm
-#define START_BUZZER       1600 //>=1600ppm
-*/
+  #define START_GRUEN         600 //>= 600ppm
+  #define START_GELB         1000 //>=1000ppm
+  #define START_ROT          1200 //>=1200ppm
+  #define START_ROT_BLINKEN  1400 //>=1400ppm
+  #define START_BUZZER       1600 //>=1600ppm
+#endif
 
 //--- Messintervall ---
 #define INTERVALL          2 //2-1800s (nur SCD30, SCD4X immer 5s)
@@ -62,6 +67,7 @@
 #define WIFI_AMPEL         0 //1 = Version mit WiFi/WLAN
 #define AMPEL_DURCHSCHNITT 1 //1 = CO2 Durchschnitt fuer Ampel verwenden
 #define AUTO_KALIBRIERUNG  0 //1 = automatische Kalibrierung (ASC) an (erfordert 7 Tage Dauerbetrieb mit 1h Frischluft pro Tag)
+#define BUZZER             1 //Buzzer aktivieren
 #define BUZZER_DELAY     300 //300s, Buzzer Startverzögerung
 #define TEMP_OFFSET        4 //Temperaturoffset in °C (0-20)
 #define TEMP_OFFSET_WIFI   8 //WiFi, Temperaturoffset in °C (0-20)
@@ -123,6 +129,7 @@ typedef struct
   boolean valid;
   unsigned int brightness;
   unsigned int range[5];
+  unsigned int buzzer;
   char wifi_ssid[64+1];
   char wifi_code[64+1];
 } SETTINGS;
@@ -139,7 +146,7 @@ WiFiServer server(80); //Webserver Port 80
 
 unsigned int features=0, remote_on=0, buzzer_timer=BUZZER_DELAY;
 unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
-float temp_value=20, temp_offset=TEMP_OFFSET, humi_value=50, pres_value=1013, pres_last=1013;
+float temp_value=20, temp_offset=TEMP_OFFSET, humi_value=50, pres_value=1013, pres_last=1013, temp2_value=20;
 
 
 void leds(uint32_t color)
@@ -252,18 +259,26 @@ unsigned int check_sensors(void) //Sensoren auslesen
       humi_value = scd30.getHumidity();
       if(features & FEATURE_LPS22HB)
       {
-        pres_value = lps22.readPressure()*10; //kPa -> hPa
-        temp_value = lps22.readTemperature()-temp_offset;
+        pres_value  = lps22.readPressure()*10; //kPa -> hPa
+        temp2_value = lps22.readTemperature()-temp_offset;
       }
       if(features & FEATURE_BMP280)
       {
-        pres_value = bmp280.readPressure()/100; //Pa -> hPa
-        temp_value = bmp280.readTemperature()-temp_offset;
+        pres_value  = bmp280.readPressure()/100; //Pa -> hPa
+        temp2_value = bmp280.readTemperature()-temp_offset;
       }
       if((pres_value < (pres_last-DRUCK_DIFF)) || (pres_value > (pres_last+DRUCK_DIFF)))
       {
         pres_last = pres_value;
         scd30.setAmbientPressure(pres_value); //hPa=mBar
+      }
+      if(humi_value < 0)
+      {
+        humi_value = 0;
+      }
+      else if(humi_value > 100)
+      {
+        humi_value = 100;
       }
       return 1;
     }
@@ -280,18 +295,30 @@ unsigned int check_sensors(void) //Sensoren auslesen
       humi_value = v_humi;
       if(features & FEATURE_LPS22HB)
       {
-        pres_value = lps22.readPressure()*10; //kPa -> hPa
-        temp_value = lps22.readTemperature()-temp_offset;
+        pres_value  = lps22.readPressure()*10; //kPa -> hPa
+        temp2_value = lps22.readTemperature()-temp_offset;
       }
       if(features & FEATURE_BMP280)
       {
-        pres_value = bmp280.readPressure()/100; //Pa -> hPa
-        temp_value = bmp280.readTemperature()-temp_offset;
+        pres_value  = bmp280.readPressure()/100; //Pa -> hPa
+        temp2_value = bmp280.readTemperature()-temp_offset;
       }
       if((pres_value < (pres_last-DRUCK_DIFF)) || (pres_value > (pres_last+DRUCK_DIFF)))
       {
         pres_last = pres_value;
+        scd4x.stopPeriodicMeasurement();
+        delay(1000);
         scd4x.setAmbientPressure(pres_value); //hPa=mBar
+        delay(500);
+        scd4x.startPeriodicMeasurement();
+      }
+      if(humi_value < 0)
+      {
+        humi_value = 0;
+      }
+      else if(humi_value > 100)
+      {
+        humi_value = 100;
       }
       return 1;
     }
@@ -317,6 +344,8 @@ void show_data(void) //Daten anzeigen
     {
       Serial.print("p: ");         //Druck
       Serial.println(pres_value);  //Wert in hPa
+      Serial.print("u: ");         //Temperatur
+      Serial.println(temp2_value); //Wert in °C
     }
     Serial.println();
   }
@@ -440,6 +469,12 @@ void serial_service(void)
         if(cmd == '1')
         {
           buzzer(500); //500ms Buzzer an
+          settings.buzzer = 1;
+          Serial.println("OK");
+        }
+        else if(cmd == '0')
+        {
+          settings.buzzer = 0;
           Serial.println("OK");
         }
         break;
@@ -452,15 +487,27 @@ void serial_service(void)
           sscanf(tmp, "%d", &val);
           if((val >= 0) && (val <= 20))
           {
+            temp_offset = val;
             if(features & FEATURE_SCD30)
             {
               scd30.setTemperatureOffset(val); //Temperaturoffset
+              Serial.println("OK");
             }
             else if(features & FEATURE_SCD4X)
             {
-              scd4x.setTemperatureOffset(val); //Temperaturoffset
+              scd4x.stopPeriodicMeasurement();
+              delay(1000);
+              if(scd4x.setTemperatureOffset(val) == 0) //Temperaturoffset
+              {
+                Serial.println("OK");
+              }
+              else
+              {
+                Serial.println("ERROR");
+              }
+              delay(500);
+              scd4x.startPeriodicMeasurement();
             }
-            Serial.println("OK");
           }
         }
         break;
@@ -476,12 +523,23 @@ void serial_service(void)
             if(features & FEATURE_SCD30)
             {
               scd30.setAltitudeCompensation(val); //Meter ueber dem Meeresspiegel
+              Serial.println("OK");
             }
             else if(features & FEATURE_SCD4X)
             {
-              scd4x.setSensorAltitude(val); //Meter ueber dem Meeresspiegel
+              scd4x.stopPeriodicMeasurement();
+              delay(1000);
+              if(scd4x.setSensorAltitude(val) == 0) //Meter ueber dem Meeresspiegel
+              {
+                Serial.println("OK");
+              }
+              else
+              {
+                Serial.println("ERROR");
+              }
+              delay(500);
+              scd4x.startPeriodicMeasurement();
             }
-            Serial.println("OK");
           }
         }
         break;
@@ -502,14 +560,15 @@ void serial_service(void)
             if(features & FEATURE_SCD30)
             {
               scd30.setForcedRecalibrationFactor(val);
+              delay(500);
             }
             else if(features & FEATURE_SCD4X)
             {
               uint16_t corr;
               scd4x.stopPeriodicMeasurement();
-              delay(500);
+              delay(1000);
               scd4x.performForcedRecalibration(val, corr);
-              delay(500);
+              delay(1000);
               scd4x.startPeriodicMeasurement();
             }
             Serial.println("OK");
@@ -546,6 +605,9 @@ void serial_service(void)
       case 'H': //LED Helligkeit
         Serial.println(settings.brightness, HEX);
         break;
+      case 'B': //Buzzer
+        Serial.println(settings.buzzer, DEC);
+        break;
       case 'T': //Temperaturoffset
         if(features & FEATURE_SCD30)
         {
@@ -554,7 +616,11 @@ void serial_service(void)
         else if(features & FEATURE_SCD4X)
         {
           float offset;
+          scd4x.stopPeriodicMeasurement();
+          delay(500);
           scd4x.getTemperatureOffset(offset);
+          delay(500);
+          scd4x.startPeriodicMeasurement();
           val = offset;
         }
         Serial.println(val, DEC);
@@ -567,7 +633,11 @@ void serial_service(void)
         else if(features & FEATURE_SCD4X)
         {
           uint16_t alt;
+          scd4x.stopPeriodicMeasurement();
+          delay(500);
           scd4x.getSensorAltitude(alt);
+          delay(500);
+          scd4x.startPeriodicMeasurement();
           val = alt;
         }
         Serial.println(val, DEC);
@@ -635,7 +705,7 @@ void webserver_service(void)
   {
     return;
   }
-  
+
   if(WiFi.status() == WL_IDLE_STATUS)
   {
     return;
@@ -652,6 +722,10 @@ void webserver_service(void)
   WiFiClient client = server.available();
   if(client) //Client verbunden
   {
+    //if(features & FEATURE_USB)
+    //{
+    //  Serial.println("WiFi client connected");
+    //}
     boolean currentLineIsBlank = true;
     while(client.connected())
     {
@@ -718,6 +792,8 @@ void webserver_service(void)
           {
             client.print("<br>Druck (hPa): ");
             client.println(pres_value, 1);
+            client.print("<br>Temperatur (C): ");
+            client.println(temp2_value, 1);
           }
           client.println("<br></span><br><hr><br>");
           client.print("<br><b>WiFi Login</b>");
@@ -730,7 +806,7 @@ void webserver_service(void)
           client.println("'><br>");
           client.println("<input type=submit value=Speichern> (Neustart erforderlich)");
           client.println("</form>");
-          client.print("<br><br><small>Firmware: v"VERSION"");
+          client.print("<br><br><small>Firmware: v" VERSION);
           if(features & FEATURE_WINC1500)
           {
             String fv = WiFi.firmwareVersion();
@@ -762,11 +838,9 @@ void webserver_service(void)
 int check_i2c(Sercom *sercom, byte addr) //1=okay
 {
   int res = 0;
-  unsigned long t_start;
 
   for(int t=3; (t!=0) && (res==0); t--) //try 3 times
   {
-    t_start = millis();
     sercom->I2CM.CTRLA.bit.ENABLE = 1; //enable master mode
     delay(10); //wait 10ms
     sercom->I2CM.ADDR.bit.ADDR = (addr<<1) | 0x00; //start transfer
@@ -810,7 +884,7 @@ int check_i2c(Sercom *sercom, byte addr) //1=okay
 void self_test(void) //Testprogramm
 {
   //Buzzer-Test
-  buzzer(1000); //1s Buzzer an
+  buzzer(500); //500ms Buzzer an
 
   //LED-Test
   leds(0xFF0000); //LEDs rot
@@ -993,32 +1067,29 @@ void air_test(void) //Frischluft-Test
     }
   }
 
+  //Ende
+  leds(FARBE_AUS);//LEDs aus
+  buzzer(250); //250ms Buzzer an
+
   return;
 }
 
 
-void altitude_toffset(void) //Altitude und Temperaturoffset
+unsigned int select_value(unsigned int value, unsigned int min, unsigned int max, unsigned int fill, uint32_t color, uint32_t color_off)
 {
-  unsigned int timeout, sw, value;
+  unsigned int timeout, sw;
 
-  //Altitude
-  if(features & FEATURE_SCD30)
+  ws2812.fill(color_off, 0, 4);
+  if(fill == 0)
   {
-    value = scd30.getAltitudeCompensation() / 250; //Meter ueber dem Meeresspiegel
+    ws2812.setPixelColor(value, FARBE_VIOLETT);
   }
-  else if(features & FEATURE_SCD4X)
+  else if(value > 0)
   {
-    uint16_t altitude;
-    scd4x.getSensorAltitude(altitude); //Meter ueber dem Meeresspiegel
-    value = altitude/250;
-  }
-
-  ws2812.fill(FARBE_WEISS, 0, 4); //LEDs weiss
-  if(value > 0)
-  {
-    ws2812.fill(FARBE_ROT, 0, value); //LEDs rot
+    ws2812.fill(color, 0, value);
   }
   ws2812.show();
+
   for(sw=0, timeout=0; timeout<1000; timeout++) //10s Timeout
   {
     delay(10); //10ms warten
@@ -1043,22 +1114,52 @@ void altitude_toffset(void) //Altitude und Temperaturoffset
       else if(sw > 10) //100ms Tastendruck
       {
         value++;
-        if(value > 4)
+        if(value > max)
         {
-          value = 0;
+          value = min;
         }
-        ws2812.fill(FARBE_WEISS, 0, 4); //LEDs weiss
-        if(value > 0)
+        ws2812.fill(color_off, 0, 4);
+        if(fill == 0)
         {
-          ws2812.fill(FARBE_ROT, 0, value); //LEDs rot
+          ws2812.setPixelColor(value, color);
+        }
+        else if(value > 0)
+        {
+          ws2812.fill(color, 0, value);
         }
         ws2812.show();
       }
       sw = 0;
     }
   }
+  
   leds(FARBE_AUS); //LEDs aus
-  value = value * 250;
+  delay(500); //500ms warten
+
+  return value;
+}
+
+
+void altitude_toffset(void) //Altitude und Temperaturoffset
+{
+  unsigned int timeout, sw, value=0;
+
+  //Altitude
+  if(features & FEATURE_SCD30)
+  {
+    value = scd30.getAltitudeCompensation() / 250; //Meter ueber dem Meeresspiegel
+  }
+  else if(features & FEATURE_SCD4X)
+  {
+    uint16_t altitude;
+    scd4x.stopPeriodicMeasurement();
+    delay(500);
+    scd4x.getSensorAltitude(altitude); //Meter ueber dem Meeresspiegel
+    value = altitude/250;
+  }
+
+  value = select_value(value, 0, 4, 1, FARBE_ROT, FARBE_WEISS) * 250;
+
   if(features & FEATURE_SCD30)
   {
     scd30.setAltitudeCompensation(value); //Meter ueber dem Meeresspiegel
@@ -1074,9 +1175,6 @@ void altitude_toffset(void) //Altitude und Temperaturoffset
     Serial.println(value, DEC);
   }
 
-  //Taster noch gedrueckt?
-  while(digitalRead(PIN_SWITCH) == LOW);
-
   //Temperaturoffset
   if(features & FEATURE_SCD30)
   {
@@ -1088,52 +1186,9 @@ void altitude_toffset(void) //Altitude und Temperaturoffset
     scd4x.getTemperatureOffset(offset); //Meter ueber dem Meeresspiegel
     value = offset / 2;
   }
-  ws2812.fill(FARBE_BLAU, 0, 4); //LEDs blau
-  if(value > 0)
-  {
-    ws2812.fill(FARBE_GELB, 0, value); //LEDs gelb
-  }
-  ws2812.show();
-  for(sw=0, timeout=0; timeout<1000; timeout++) //10s Timeout
-  {
-    delay(10); //10ms warten
 
-    if(digitalRead(PIN_SWITCH) == LOW) //Taster gedrueckt
-    {
-      status_led(1); //Status-LED an
-      sw++;
-      if(sw > 200)
-      {
-        leds(FARBE_AUS); //LEDs aus
-      }
-      timeout = 0;
-    }
-    else //Taster losgelassen
-    {
-      status_led(0); //Status-LED aus
-      if(sw > 200) //2s Tastendruck
-      {
-        break;
-      }
-      else if(sw > 10) //100ms Tastendruck
-      {
-        value++;
-        if(value > 4)
-        {
-          value = 0;
-        }
-        ws2812.fill(FARBE_BLAU, 0, 4); //LEDs blau
-        if(value > 0)
-        {
-          ws2812.fill(FARBE_GELB, 0, value); //LEDs gelb
-        }
-        ws2812.show();
-      }
-      sw = 0;
-    }
-  }
-  leds(FARBE_AUS); //LEDs aus
-  value = value * 2;
+  value = select_value(value, 0, 4, 1, FARBE_GELB, FARBE_BLAU) * 2;
+
   if(features & FEATURE_SCD30)
   {
     scd30.setTemperatureOffset(value); //Temperaturoffset
@@ -1141,13 +1196,29 @@ void altitude_toffset(void) //Altitude und Temperaturoffset
   else if(features & FEATURE_SCD4X)
   {
     scd4x.setTemperatureOffset(value); //Temperaturoffset
+    delay(500);
+    scd4x.startPeriodicMeasurement();
   }
-  flash_settings.write(settings); //Einstellungen speichern
+
   if(features & FEATURE_USB)
   {
     Serial.print("Temperature: ");
     Serial.println(value, DEC);
   }
+
+  //Buzzer
+  settings.buzzer = select_value(settings.buzzer, 0, 1, 1, FARBE_GRUEN, FARBE_WEISS);
+
+  if(features & FEATURE_USB)
+  {
+    Serial.print("Buzzer: ");
+    Serial.println(settings.buzzer, DEC);
+  }
+
+  //Ende
+  flash_settings.write(settings); //Einstellungen speichern
+  leds(FARBE_BLAU);//LEDs blau
+  buzzer(250); //250ms Buzzer an
 
   return;
 }
@@ -1155,7 +1226,7 @@ void altitude_toffset(void) //Altitude und Temperaturoffset
 
 void calibration(void) //Kalibrierung
 {
-  unsigned int abort=0, okay, interval=INTERVALL, co2, co2_last;
+  unsigned int abort=0, cycle, again, interval=INTERVALL, co2, co2_last;
 
   //Der Messintervall während der Kalibrierung und im Betrieb sollte gleich sein.
   //Unterschiedliche Intervalle können zu Abweichungen und schwankenden Messwerten führen.
@@ -1189,6 +1260,8 @@ void calibration(void) //Kalibrierung
   }
   else if(features & FEATURE_SCD4X)
   {
+    scd4x.stopPeriodicMeasurement();
+    delay(1000);
     if(AUTO_KALIBRIERUNG) //ASC on
     {
       uint16_t asc;
@@ -1207,11 +1280,15 @@ void calibration(void) //Kalibrierung
         scd4x.setAutomaticSelfCalibration(0);
       }
     }
+    delay(500);
+    scd4x.startPeriodicMeasurement();
   }
+
+  calibration_start:
 
   //Kalibrierung
   co2 = co2_last = co2_sensor();
-  for(okay=0; okay < (180/interval);) //mindestens 3 Minuten
+  for(again=0, cycle=0; cycle < (180/interval);) //mindestens 3 Minuten
   {
     if(digitalRead(PIN_SWITCH) == 0) //Taster gedrueckt?
     {
@@ -1224,19 +1301,21 @@ void calibration(void) //Kalibrierung
     if(check_sensors())
     {
       co2 = co2_sensor();
-      if(co2 < 300) //Sensor falsch kalibriert
+      if((co2 >= 200) && (co2 <= 800) && 
+         (co2 >= (co2_last-30)) &&
+         (co2 <= (co2_last+30))) //+/-30ppm Toleranz zum vorherigen Wert
       {
-        okay++;
+        cycle++;
+        again = 0;
       }
-      else if((co2 >= 300) && (co2 <= 2000) && 
-              (co2 >= (co2_last-30)) &&
-              (co2 <= (co2_last+30))) //+/-30ppm Toleranz zum vorherigen Wert
+      else //Sensor falsch kalibriert
       {
-        okay++;
-      }
-      else
-      {
-        okay = 0;
+        again++;
+        if(again > 3)
+        {
+          again = 1;
+          cycle++;
+        }
       }
       co2_last = co2;
 
@@ -1260,27 +1339,33 @@ void calibration(void) //Kalibrierung
 
       if(features & FEATURE_USB)
       {
-        Serial.print("ok: ");
-        Serial.println(okay);
+        Serial.print("loop: ");
+        Serial.println(cycle);
       }
 
       show_data();
     }
   }
-  if((abort == 0) && (okay >= (180/interval)))
+  if(abort == 0)
   {
     if(features & FEATURE_SCD30)
     {
       scd30.setForcedRecalibrationFactor(400); //400ppm = Frischluft
+      delay(500);
     }
     else if(features & FEATURE_SCD4X)
     {
       uint16_t corr;
       scd4x.stopPeriodicMeasurement();
-      delay(500);
+      delay(1000);
       scd4x.performForcedRecalibration(400, corr); //400ppm = Frischluft
-      delay(500);
+      delay(1000);
       scd4x.startPeriodicMeasurement();
+    }
+    if(again != 0)
+    {
+      Serial.println("Restart calibration");
+      goto calibration_start;
     }
     leds(FARBE_BLAU);//LEDs blau
     buzzer(500); //500ms Buzzer an
@@ -1302,56 +1387,17 @@ void menu(void)
   ws2812.setBrightness(30); //0...255
   leds(FARBE_VIOLETT); //LEDs violett
   delay(500); //500ms warten
-
   leds(FARBE_AUS); //LEDs aus
-  ws2812.fill(ws2812.Color(20,20,20), 0, 4); //LEDs weiss
-  ws2812.setPixelColor(0, FARBE_VIOLETT);
-  ws2812.show();
+  buzzer(250); //250ms Buzzer an
 
-  for(value=0, sw=0, timeout=0; timeout<1000; timeout++) //10s Timeout
-  {
-    delay(10); //10ms warten
-
-    if(digitalRead(PIN_SWITCH) == LOW) //Taster gedrueckt
-    {
-      status_led(1); //Status-LED an
-      sw++;
-      if(sw > 200)
-      {
-        leds(FARBE_AUS); //LEDs aus
-      }
-      timeout=0;
-    }
-    else //Taster losgelassen
-    {
-      status_led(0); //Status-LED aus
-      if(sw > 200) //2s Tastendruck
-      {
-        break;
-      }
-      else if(sw > 10) //100ms Tastendruck
-      {
-        value++;
-        if(value > 3)
-        {
-          value = 0;
-        }
-        ws2812.fill(ws2812.Color(20,20,20), 0, 4); //LEDs weiss
-        ws2812.setPixelColor(value, FARBE_VIOLETT);
-        ws2812.show();
-      }
-      sw = 0;
-    }
-  }
-
-  leds(FARBE_AUS); //LEDs aus
+  value = select_value(1, 1, 4, 1, FARBE_VIOLETT, ws2812.Color(20,20,20));
 
   switch(value)
   {
-    case 0: self_test();        break;
-    case 1: air_test();         break;
-    case 2: altitude_toffset(); break;
-    case 3: calibration();      break;
+    case 1: self_test();        break;
+    case 2: air_test();         break;
+    case 3: altitude_toffset(); break;
+    case 4: calibration();      break;
   }
 
   ws2812.setBrightness(settings.brightness); //0...255
@@ -1555,6 +1601,7 @@ void setup()
       Wire.begin();
       scd4x.begin(Wire);
       scd4x.stopPeriodicMeasurement();
+      delay(100);
       if(scd4x.startPeriodicMeasurement() == 0)
       {
         features |= FEATURE_SCD4X;
@@ -1565,18 +1612,23 @@ void setup()
   }
 
   //Temperaturoffset
-  if(features & FEATURE_WINC1500)
+  if(features & FEATURE_SCD30)
   {
-    if(features & (FEATURE_LPS22HB|FEATURE_BMP280))
-    {
-      temp_offset = TEMP_OFFSET_PRO;
-    }
-    else
-    {
-      temp_offset = TEMP_OFFSET_WIFI;
-    }
+    temp_offset = scd30.getTemperatureOffset();
   }
-  else
+  else if(features & FEATURE_SCD4X)
+  {
+    float offset;
+    scd4x.stopPeriodicMeasurement();
+    delay(500);
+    if(scd4x.getTemperatureOffset(offset) == 0)
+    {
+      temp_offset = offset;
+    }
+    delay(500);
+    scd4x.startPeriodicMeasurement();
+  }
+  if(temp_offset >= 20)
   {
     temp_offset = TEMP_OFFSET;
   }
@@ -1591,15 +1643,34 @@ void setup()
     settings.range[2]     = START_ROT;
     settings.range[3]     = START_ROT_BLINKEN;
     settings.range[4]     = START_BUZZER;
+    settings.buzzer       = BUZZER;
     settings.wifi_ssid[0] = 0;
     strcpy(settings.wifi_ssid, WIFI_SSID);
     settings.wifi_code[0] = 0;
     strcpy(settings.wifi_code, WIFI_CODE);
     settings.valid        = true;
     flash_settings.write(settings);
+    //Standard Temperaturoffset
+    if(features & FEATURE_WINC1500)
+    {
+      if(features & (FEATURE_LPS22HB|FEATURE_BMP280))
+      {
+        temp_offset = TEMP_OFFSET_PRO;
+      }
+      else
+      {
+        temp_offset = TEMP_OFFSET_WIFI;
+      }
+    }
+    else
+    {
+      temp_offset = TEMP_OFFSET;
+    }
     if(features & FEATURE_SCD30)
     {
-      if(scd30.getTemperatureOffset() == 0)
+      float offset;
+      offset = scd30.getTemperatureOffset();
+      if((offset == 0) || (offset > 12))
       {
         scd30.setTemperatureOffset(temp_offset); //Temperaturoffset
       }
@@ -1608,7 +1679,7 @@ void setup()
     {
       float offset;
       scd4x.getTemperatureOffset(offset);
-      if(offset == 0)
+      if((offset == 0) || (offset > 12))
       {
         scd4x.setTemperatureOffset(temp_offset); //Temperaturoffset
       }
@@ -1750,7 +1821,7 @@ void ampel(unsigned int co2)
   }
   else
   {
-    if((blinken == 0) && (buzzer_timer == 0))
+    if((blinken == 0) && (buzzer_timer == 0) && settings.buzzer)
     {
       buzzer(1); //Buzzer an
     }
