@@ -1912,12 +1912,8 @@ void loop()
     co2_updated = 1;
   }
 
-  if ((co2_updated == 0) && (overwrite == 0)) {
-    return;
-  }
-
   //Ampel
-  if(remote_on == 0)
+  if (((co2_updated == 1) || (overwrite == 1)) && (remote_on == 0))
   {
     #if AMPEL_DURCHSCHNITT > 0
       ampel(co2_average);
