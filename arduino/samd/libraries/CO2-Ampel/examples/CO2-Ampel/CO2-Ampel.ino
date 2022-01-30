@@ -1808,9 +1808,18 @@ void ampel(unsigned int co2)
     off_intv = (1 - blink_dc) / blink_freq * 1000;
     // -> LED Ansteuerung erfolgt in loop()
   }
-  else //oberhalb Buzzer Schwelle: rot blinken, schnell
+  else //oberhalb Buzzer Schwelle: rot blinken, schnell, mit linear steigender Frequenz
   {
-    blink_freq = 1;
+    // im Bereich BUZZER_START bis BUZZER_START+1200 wird die Blink-Frequenz linear skaliert
+    // von ..min bis ..max. Für noch höhere ppm bleibt die Frequenz bei ..max.
+    float blink_freq_min = 1;
+    float blink_freq_max = 10;
+    int co2_delta_range = 1200;
+
+    blink_freq = blink_freq_min + (blink_freq_max - blink_freq_min) * (co2 - settings.range[4]) / co2_delta_range;
+    // Frequenz auf ..max begrenzen
+    blink_freq = min(blink_freq, blink_freq_max);
+
     blink_dc = 0.2;
     on_intv = blink_dc / blink_freq * 1000;    
     off_intv = (1 - blink_dc) / blink_freq * 1000;
