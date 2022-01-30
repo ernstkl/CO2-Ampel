@@ -144,6 +144,9 @@ WiFiServer server(80); //Webserver Port 80
 unsigned int features=0, remote_on=0, buzzer_timer=BUZZER_DELAY;
 unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
 float temp_value=20, temp_offset=TEMP_OFFSET, humi_value=50, pres_value=1013, pres_last=1013, temp2_value=20;
+// TODO move the following variables to loop(), as well as all code from ampel()
+float blink_freq=0;  // Hz, set in ampel()
+unsigned long on_intv=0, off_intv=0;
 
 
 void leds(uint32_t color)
@@ -1775,40 +1778,36 @@ void setup()
 
 void ampel(unsigned int co2)
 {
-  static unsigned int blinken=0;
+  static unsigned int buzzer_state=0;
+  float blink_dc=0;  // duty cycle 0..1
 
+  blink_freq = 0.0;
+  
   //LEDs
   if(co2 < settings.range[0]) //blau
   {
-    blinken = 0;
     leds(FARBE_BLAU);
   }
   else if(co2 < settings.range[1]) //gruen
   {
-    blinken = 0;
     leds(FARBE_GRUEN);
   }
   else if(co2 < settings.range[2]) //gelb
   {
-    blinken = 0;
     leds(FARBE_GELB);
   }
   else if(co2 < settings.range[3]) //rot
   {
-    blinken = 0;
     leds(FARBE_ROT);
   }
   else //rot blinken
   {
-    if(blinken == 0)
-    {
-      leds(ws2812.Color(10,0,0)); //rot schwache Helligkeit
-    }
-    else
-    {
-      leds(FARBE_ROT); //rot
-    }
-    blinken = 1-blinken; //invertieren
+    // This will be made dependent on how far we are beyond the threshold
+    blink_freq = 0.5;
+    blink_dc = 0.5;
+    on_intv = blink_dc / blink_freq * 1000;    
+    off_intv = (1 - blink_dc) / blink_freq * 1000;
+    // -> LED Ansteuerung erfolgt in loop()
   }
 
   //Buzzer
@@ -1818,13 +1817,15 @@ void ampel(unsigned int co2)
   }
   else
   {
-    if((blinken == 0) && (buzzer_timer == 0) && settings.buzzer)
+    if((buzzer_state == 0) && (buzzer_timer == 0) && settings.buzzer)
     {
       buzzer(1); //Buzzer an
+      buzzer_state = 1;
     }
     else
     {
       buzzer(0); //Buzzer aus
+      buzzer_state = 0;
     }
   }
 
@@ -1838,6 +1839,8 @@ void loop()
   static unsigned long t_switch=0, t_ampel=0, t_light=~((LICHT_INTERVALL*1000UL*60UL)-60000UL); //Lichtsensor nach 60s pruefen
   unsigned int overwrite=0;
   unsigned int co2_updated=0;
+  static unsigned long t_blink=1000000;
+  static unsigned int blink_state=0;
 
   //serielle Befehle verarbeiten
   serial_service();
@@ -1920,6 +1923,29 @@ void loop()
     #else
       ampel(co2_value);
     #endif
+  }
+
+  if (blink_freq > 0.0) 
+  // Umschalten LED-Zustand an/aus mit Schaltintervallen aus aktueller Frequenz
+  {
+    if (blink_state == 1) 
+    {
+      if ((millis() - t_blink) > on_intv)
+      {
+        t_blink = millis();
+        blink_state = 0;
+        leds(ws2812.Color(10,0,0)); //rot schwache Helligkeit
+      }
+    } 
+    else // blink_state == 0
+    {      
+       if ((millis() - t_blink) > off_intv)
+       {
+        t_blink = millis();
+        blink_state = 1;
+        leds(FARBE_ROT); //rot
+       }
+    }
   }
 
   //Lichtsensor
