@@ -1837,6 +1837,7 @@ void loop()
   static unsigned int dark=0, sw=0;
   static unsigned long t_switch=0, t_ampel=0, t_light=~((LICHT_INTERVALL*1000UL*60UL)-60000UL); //Lichtsensor nach 60s pruefen
   unsigned int overwrite=0;
+  unsigned int co2_updated=0;
 
   //serielle Befehle verarbeiten
   serial_service();
@@ -1908,9 +1909,10 @@ void loop()
     }
 
     co2_average = (co2_average + co2_sensor()) / 2; //Berechnung jede Sekunde
+    co2_updated = 1;
   }
-  else if(overwrite == 0)
-  {
+
+  if ((co2_updated == 0) && (overwrite == 0)) {
     return;
   }
 
