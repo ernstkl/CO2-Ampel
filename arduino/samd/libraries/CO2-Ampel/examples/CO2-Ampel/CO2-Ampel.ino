@@ -1800,16 +1800,23 @@ void ampel(unsigned int co2)
   {
     leds(FARBE_ROT);
   }
-  else //rot blinken
+  else if(co2 < settings.range[4]) //rot blinken, langsam
   {
-    // This will be made dependent on how far we are beyond the threshold
     blink_freq = 0.5;
     blink_dc = 0.5;
     on_intv = blink_dc / blink_freq * 1000;    
     off_intv = (1 - blink_dc) / blink_freq * 1000;
     // -> LED Ansteuerung erfolgt in loop()
   }
-
+  else //oberhalb Buzzer Schwelle: rot blinken, schnell
+  {
+    blink_freq = 1;
+    blink_dc = 0.2;
+    on_intv = blink_dc / blink_freq * 1000;    
+    off_intv = (1 - blink_dc) / blink_freq * 1000;
+    // -> LED Ansteuerung erfolgt in loop()
+  }
+  
   //Buzzer
   if(co2 < settings.range[4])
   {
