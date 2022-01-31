@@ -819,7 +819,7 @@ void webserver_service(void)
           client.print(settings.start_buzzer_extra);
           client.println(" ppm.");
           client.println("<form method=post>");
-          client.print("Neu: plus ... <input name=5 size=20 maxlength=64 placeholder=Buzzer threshold extension='");
+          client.print("Neu: plus ... <input name=5 size=20 maxlength=64 placeholder=Buzzer_ext value='");
           client.print(0); //Buzzer-Schwelle
           client.println("'><br>");
           client.println("<input type=submit value=Speichern>");
