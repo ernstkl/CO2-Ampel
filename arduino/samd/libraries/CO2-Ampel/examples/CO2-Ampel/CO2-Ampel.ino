@@ -33,7 +33,7 @@
   Die Kalibrierung des Sensors bleibt ebenfalls erhalten.
 */
 
-#define VERSION "22"
+#define VERSION "23"
 #define COVID 0 //1=COVID CO2-Werte
 
 //--- CO2-Werte ---
@@ -63,7 +63,7 @@
 
 //--- Lichtsensor ---
 #define LICHT_DUNKEL       20   //<20 -> dunkel
-#define LICHT_INTERVALL    3600 //1-60000s (Sensorpruefung)
+#define LICHT_INTERVALL    60 //10-120min (Sensorpruefung)
 
 //--- WiFi/WLAN ---
 #define WIFI_SSID          "" //WiFi SSID
@@ -1888,7 +1888,7 @@ void ampel(unsigned int co2)
 void loop()
 {
   static unsigned int dark=0, sw=0;
-  static unsigned long t_ampel=0, t_light=0, t_switch=0;
+  static unsigned long t_switch=0, t_ampel=0, t_light=~((LICHT_INTERVALL*1000UL*60UL)-60000UL); //Lichtsensor nach 60s pruefen
   unsigned int overwrite=0;
 
   //serielle Befehle verarbeiten
@@ -1980,7 +1980,7 @@ void loop()
   //Lichtsensor
   if(remote_on == 0)
   {
-    if((millis()-t_light) > (LICHT_INTERVALL*1000UL))
+    if((millis()-t_light) > (LICHT_INTERVALL*1000UL*60UL))
     {
       t_light = millis(); //Zeit speichern
 
