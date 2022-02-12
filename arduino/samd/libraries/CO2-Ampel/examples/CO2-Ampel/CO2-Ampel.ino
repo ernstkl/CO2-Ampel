@@ -102,6 +102,7 @@
 
 //lokale Definitionen außerhalb git. Z.B. für WIFI_SSID, Helligkeit. h-Datei muss im Ordner mit der .ino-Datei liegen.
 #include "my-defines.h"
+//#include "my-defines-pro.h"
 
 //--- Features ---
 enum Features
