@@ -2155,13 +2155,6 @@ void loop()
     co2_updated = 1;
   }
 
-  if((millis()-t_mqtt) > 10000) //MQTT Nachricht nur alle 10 Sek
-  {
-    t_mqtt = millis(); //Zeit speichern
-
-    send_data_mqtt();
-  }
-
   //Ampel
   if (((co2_updated == 1) || (overwrite == 1)) && (remote_on == 0))
   {
@@ -2193,6 +2186,13 @@ void loop()
         leds(FARBE_ROT); //rot
        }
     }
+  }
+
+  if((millis()-t_mqtt) > 10000) //MQTT Nachricht nur alle 10 Sek
+  {
+    t_mqtt = millis(); //Zeit speichern
+
+    send_data_mqtt();
   }
 
   // Lüftungsende signalisieren mit 3x Buzzer, wenn ppm von größer 600 nach kleiner 500 sinkt
