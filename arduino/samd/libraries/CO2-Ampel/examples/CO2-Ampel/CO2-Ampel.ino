@@ -845,6 +845,7 @@ void webserver_service(void)
                 req_passcode[i++] = c;
                 req_passcode[i] = 0;
                 calib_req = 1;
+              }
               else if((r == 5) && (i < 10)) //5 (buzzer threshold)
               {
                 threshold_ext_value[i++] = c;
@@ -869,7 +870,7 @@ void webserver_service(void)
               //Serial.println(mqtt_server);
               strcpy(settings.mqtt_server, mqtt_server);
               flash_settings.write(settings); //Einstellungen speichern
-	     }
+            }
             if(calib_req)
             {
               urldecode(req_passcode);
@@ -884,6 +885,7 @@ void webserver_service(void)
                 calibration();
                 Serial.println("done.");
               }
+            }
             if(threshold_req)
             {
               urldecode(threshold_ext_value);
@@ -954,6 +956,7 @@ void webserver_service(void)
           client.print(settings.mqtt_server); //MQTT Server
           client.println("'><br>");
           client.println("<input type=submit value=Speichern> (Neustart erforderlich)");
+          client.println("</form>");
 
           client.println("<br></span><br><hr><br>");
           client.print("<br><b>Sensor-Kalibrierung an Frischluft: calibration() Prozedur starten wie über Menu (3), 2 min</b>");
@@ -2214,6 +2217,8 @@ void loop()
         long_short_beep();
         // weitere Benachrichtigungen abstellen
         notification_high_ppm_done = 1;
+    }
+  }
 
   //Lichtsensor
   if(remote_on == 0)
