@@ -170,6 +170,7 @@ WiFiServer server(80); //Webserver Port 80
 // network connection objects for MQTT
 WiFiClient mqtt_wifi_client;
 PubSubClient mqtt_client(mqtt_wifi_client);
+unsigned int last_wifi_error=1234;
 
 char mqtt_topic[15];
 char mqtt_client_name[16];
@@ -411,10 +412,14 @@ void send_data_mqtt(void) // Daten auf mqtt-topic senden: tele/co2/<ab-cd>
     return;
   }
 
+  Serial.print("mqtt: last Wifi error status was ");
+  Serial.println(last_wifi_error);
+
   if (!(WiFi.status() == WL_CONNECTED))
   { 
     // only proceed in Wifi client mode
-    Serial.println("mqtt: no Wifi");
+    Serial.print("mqtt: no Wifi, status is ");
+    Serial.println(WiFi.status());
     return;
   }
 
@@ -796,6 +801,7 @@ void webserver_service(void)
   {
     if((millis()-t_check) > (1*60000UL)) //1min
     {
+      last_wifi_error = WiFi.status();
       t_check = millis();
       wifi_start();
     }
