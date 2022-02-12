@@ -166,6 +166,9 @@ char mqtt_msg[5]; // maximal vierstellige Zahl plus null byte
 unsigned int features=0, remote_on=0, buzzer_timer=BUZZER_DELAY;
 unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
 float temp_value=20, temp_offset=TEMP_OFFSET, humi_value=50, pres_value=1013, pres_last=1013, temp2_value=20;
+// TODO move the following variables to loop(), as well as all code from ampel()
+float blink_freq=0;  // Hz, set in ampel()
+unsigned long on_intv=0, off_intv=0;
 
 unsigned int notification_low_ppm_done=1;
 unsigned int notification_high_ppm_done=1;
@@ -1967,42 +1970,54 @@ void setup()
 
 void ampel(unsigned int co2)
 {
-  static unsigned int blinken=0;
+  static unsigned int buzzer_state=0;
+  float blink_dc=0;  // duty cycle 0..1
 
+  blink_freq = 0.0;
+  
   //LEDs
   if(co2 < settings.range[0]) //blau
   {
-    blinken = 0;
     leds(FARBE_BLAU);
   }
   else if(co2 < settings.range[1]) //gruen
   {
-    blinken = 0;
     leds(FARBE_GRUEN);
   }
   else if(co2 < settings.range[2]) //gelb
   {
-    blinken = 0;
     leds(FARBE_GELB);
   }
   else if(co2 < settings.range[3]) //rot
   {
-    blinken = 0;
     leds(FARBE_ROT);
   }
-  else //rot blinken
+  else if(co2 < settings.range[4]) //rot blinken, langsam
   {
-    if(blinken == 0)
-    {
-      leds(ws2812.Color(10,0,0)); //rot schwache Helligkeit
-    }
-    else
-    {
-      leds(FARBE_ROT); //rot
-    }
-    blinken = 1-blinken; //invertieren
+    blink_freq = 0.5;
+    blink_dc = 0.5;
+    on_intv = blink_dc / blink_freq * 1000;    
+    off_intv = (1 - blink_dc) / blink_freq * 1000;
+    // -> LED Ansteuerung erfolgt in loop()
   }
+  else //oberhalb Buzzer Schwelle: rot blinken, schnell, mit linear steigender Frequenz
+  {
+    // im Bereich BUZZER_START bis BUZZER_START+1200 wird die Blink-Frequenz linear skaliert
+    // von ..min bis ..max. Für noch höhere ppm bleibt die Frequenz bei ..max.
+    float blink_freq_min = 1;
+    float blink_freq_max = 10;
+    int co2_delta_range = 1200;
 
+    blink_freq = blink_freq_min + (blink_freq_max - blink_freq_min) * (co2 - settings.range[4]) / co2_delta_range;
+    // Frequenz auf ..max begrenzen
+    blink_freq = min(blink_freq, blink_freq_max);
+
+    blink_dc = 0.2;
+    on_intv = blink_dc / blink_freq * 1000;    
+    off_intv = (1 - blink_dc) / blink_freq * 1000;
+    // -> LED Ansteuerung erfolgt in loop()
+  }
+  
   //Buzzer
   if(co2 < settings.range[4] + settings.start_buzzer_extra)
   {
@@ -2010,13 +2025,15 @@ void ampel(unsigned int co2)
   }
   else
   {
-    if((blinken == 0) && (buzzer_timer == 0) && settings.buzzer)
+    if((buzzer_state == 0) && (buzzer_timer == 0) && settings.buzzer)
     {
       buzzer(1); //Buzzer an
+      buzzer_state = 1;
     }
     else
     {
       buzzer(0); //Buzzer aus
+      buzzer_state = 0;
     }
   }
 
@@ -2057,6 +2074,9 @@ void loop()
   static unsigned long t_switch=0, t_ampel=0, t_light=~((LICHT_INTERVALL*1000UL*60UL)-60000UL); //Lichtsensor nach 60s pruefen
   static unsigned long t_mqtt=1000000;
   unsigned int overwrite=0;
+  unsigned int co2_updated=0;
+  static unsigned long t_blink=1000000;
+  static unsigned int blink_state=0;
 
   //serielle Befehle verarbeiten
   serial_service();
@@ -2129,10 +2149,7 @@ void loop()
     }
 
     co2_average = (co2_average + co2_sensor()) / 2; //Berechnung jede Sekunde
-  }
-  else if(overwrite == 0)
-  {
-    return;
+    co2_updated = 1;
   }
 
   if((millis()-t_mqtt) > 10000) //MQTT Nachricht nur alle 10 Sek
@@ -2143,13 +2160,36 @@ void loop()
   }
 
   //Ampel
-  if(remote_on == 0)
+  if (((co2_updated == 1) || (overwrite == 1)) && (remote_on == 0))
   {
     #if AMPEL_DURCHSCHNITT > 0
       ampel(co2_average);
     #else
       ampel(co2_value);
     #endif
+  }
+
+  if (blink_freq > 0.0) 
+  // Umschalten LED-Zustand an/aus mit Schaltintervallen aus aktueller Frequenz
+  {
+    if (blink_state == 1) 
+    {
+      if ((millis() - t_blink) > on_intv)
+      {
+        t_blink = millis();
+        blink_state = 0;
+        leds(ws2812.Color(10,0,0)); //rot schwache Helligkeit
+      }
+    } 
+    else // blink_state == 0
+    {      
+       if ((millis() - t_blink) > off_intv)
+       {
+        t_blink = millis();
+        blink_state = 1;
+        leds(FARBE_ROT); //rot
+       }
+    }
   }
 
   // Lüftungsende signalisieren mit 3x Buzzer, wenn ppm von größer 600 nach kleiner 500 sinkt
@@ -2174,8 +2214,6 @@ void loop()
         long_short_beep();
         // weitere Benachrichtigungen abstellen
         notification_high_ppm_done = 1;
-    }
-  }
 
   //Lichtsensor
   if(remote_on == 0)
