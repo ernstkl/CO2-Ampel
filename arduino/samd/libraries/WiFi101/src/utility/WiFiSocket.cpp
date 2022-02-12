@@ -142,7 +142,7 @@ sint8 WiFiSocketClass::connect(SOCKET sock, struct sockaddr *pstrAddr, uint8 u8A
 
 	unsigned long start = millis();
 
-	while (_info[sock].state == SOCKET_STATE_CONNECTING && millis() - start < 20000) {
+	while (_info[sock].state == SOCKET_STATE_CONNECTING && millis() - start < 2000) {
 		m2m_wifi_handle_events(NULL);
 	}
 
