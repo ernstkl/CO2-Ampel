@@ -769,7 +769,7 @@ void webserver_service(void)
                 req[r-1][i] = 0;
                 req_data = 1;
               }
-              else if((r == 3) && (i < 4)) //3 (calibration passcode)
+              else if((r == 4) && (i < 4)) //4 (calibration passcode)
               {
                 req_passcode[i++] = c;
                 req_passcode[i] = 0;
@@ -844,7 +844,7 @@ void webserver_service(void)
 
           client.print("<br><b>Sensor-Kalibrierung an Frischluft: calibration() Prozedur starten wie über Menu (3), 2 min</b>");
           client.println("<form method=post>");
-          client.print("Passcode <input name=3 size=4 maxlength=4 placeholder=code>");
+          client.print("Passcode <input name=4 size=4 maxlength=4 placeholder=code>");
           client.println("<br>");
           client.println("<input type=submit value=Ausführen> (Kein Neustart erforderlich. Erfolgreicher Abschluss ist daran zu erkennen, dass das Webinterface der Ampel wieder erreichbar ist, und dass die Status-LED nicht mehr schnell 5x/s blinkt, sondern im Sekundentakt blitzt.)");
           client.println("</form>");
