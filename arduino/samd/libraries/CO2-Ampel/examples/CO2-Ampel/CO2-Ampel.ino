@@ -138,6 +138,7 @@ typedef struct
   boolean valid;
   unsigned int brightness;
   unsigned int range[5];
+  unsigned int start_buzzer_extra;
   unsigned int buzzer;
   char wifi_ssid[64+1];
   char wifi_code[64+1];
@@ -809,6 +810,9 @@ void webserver_service(void)
             unsigned int calib_req=0;
             char req_passcode[5]; //4 character passcode
 
+            unsigned int threshold_req=0;
+            char threshold_ext_value[11]; //10 digit number
+
             for(unsigned int r=0, i=0, last_c=0; client.available();)
             {
               c = client.read();
@@ -838,6 +842,11 @@ void webserver_service(void)
                 req_passcode[i++] = c;
                 req_passcode[i] = 0;
                 calib_req = 1;
+              else if((r == 5) && (i < 10)) //5 (buzzer threshold)
+              {
+                threshold_ext_value[i++] = c;
+                threshold_ext_value[i] = 0;
+                threshold_req = 1;
               }
               last_c = c;
             }
@@ -872,6 +881,13 @@ void webserver_service(void)
                 calibration();
                 Serial.println("done.");
               }
+            if(threshold_req)
+            {
+              urldecode(threshold_ext_value);
+              Serial.print("setting threshold_ext_value, input is: ");
+              Serial.println((unsigned int) atoi(threshold_ext_value));
+              settings.start_buzzer_extra = (unsigned int) max(0, atoi(threshold_ext_value));
+              flash_settings.write(settings); //Einstellungen speichern
             }
           }
           //HTTP Header
@@ -899,6 +915,23 @@ void webserver_service(void)
             client.print("<br>Temperatur (C): ");
             client.println(temp2_value, 1);
           }
+          client.println("<br></span><br><hr><br>");
+          client.println("<br><b>Buzzer hinausschieben (ppm)</b>");
+          client.print("<br>Aktuell: Buzzer ertönt ab ");
+          client.print(settings.range[4]);
+          client.print(" plus ");
+          client.print(settings.start_buzzer_extra);
+          client.println(" ppm.");
+          client.println("<form method=post>");
+          client.print("Neu: plus ... <input name=5 size=20 maxlength=64 placeholder=Buzzer_ext value='");
+          client.print(0); //Buzzer-Schwelle
+          client.println("'><br>");
+          client.println("<input type=submit value=Speichern>");
+          client.println("</form>");
+          client.print("<br>Hinweis: Buzzer Verzögerung nach Start der Ampel ist konfiguriert auf ");
+          client.print(BUZZER_DELAY);
+          client.println(" s.");
+
           client.println("<br></span><br><hr><br>");
           client.print("<br><b>WiFi Login</b>");
           client.println("<form method=post>");
@@ -1791,6 +1824,7 @@ void setup()
     settings.range[2]     = START_ROT;
     settings.range[3]     = START_ROT_BLINKEN;
     settings.range[4]     = START_BUZZER;
+    settings.start_buzzer_extra = 0;
     settings.buzzer       = BUZZER;
     settings.wifi_ssid[0] = 0;
     strcpy(settings.wifi_ssid, WIFI_SSID);
@@ -1970,7 +2004,7 @@ void ampel(unsigned int co2)
   }
 
   //Buzzer
-  if(co2 < settings.range[4])
+  if(co2 < settings.range[4] + settings.start_buzzer_extra)
   {
     buzzer(0); //Buzzer aus
   }
