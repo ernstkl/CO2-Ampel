@@ -1,28 +1,40 @@
 # This fork adds the following features
 
-(see corresponding branches with commits relative to master which tracks upstream/master)
+(see also the corresponding branches with commits relative to master which tracks upstream/master)
 
-## Support for using the ampel smoothly without having to frequently check the LED colors
+## Support for using the Ampel smoothly without having to frequently check the LED colors
 
-* Triple short beep (unintrusive) that signals when ventilating can be finished. Criterion is that CO2 drops below 500 ppm (middle of blue band). A hysteresis is implemented to block further signaling until CO2 ppm has risen above 600 again.
+* Triple short beep (unintrusive) that signals when ventilating can be
+  finished. Criterion is that the CO2 level drops below 500 ppm (middle of blue
+  band). A hysteresis is implemented to block further signaling until
+  CO2 has risen above 600 ppm again.
 
-* Long-short beep (unintrusive) that signals being close to the buzzer threshold. This signal is given once when CO2 reaches a margin of 100 ppm below the buzzer threshold. So you have time to start ventilation in time to prevent the buzzer really going loose. With hysteresis at 200 ppm below the buzzer threshold.
+* Long-short beep (unintrusive) that signals being close to the buzzer
+  threshold. This signal is given once when CO2 rises to within 100
+  ppm of the buzzer threshold. So then you have time to start
+  ventilating in time to prevent the buzzer really going loose. With
+  hysteresis at 200 ppm below the buzzer threshold.
 
 ## Remote start of calibration
 
-* The 2 min calibration procedure can be triggered via the web interface. The operation is secured by a simple passcode.
+* The 2 min calibration procedure can be triggered via the web
+  interface. The operation is secured by a simple Ampel-specific
+  passcode (see sourcecode for details).
 
 ## Safe configuration of locally built firmwares
 
-* There is an include statement for a .h-file which is not tracked in git. This can be used to, e.g., configure the wifi password without the risk of accidentally committing it.
+* There is an include statement for a .h-file which is not tracked in
+  git. This can be used to, e.g., configure the wifi password without
+  the risk of accidentally committing it.
 
 ## Minimal MQTT client code
 
-* If an MQTT server name is configured this sends the plain CO2 value
-  to a device dependent topic, that is automatically determined. There
-  are no other configuration options. Configuration of the MQTT server
-  name can be done via the web interface or via a #define statement in
-  the code.
+* If an MQTT server name is configured, the plain CO2 value is sent to
+  a device dependent topic as a string. The topic is chosen
+  automatically, similar to the Ampel network name. Configuration of
+  the MQTT server name can be done via the web interface or via a
+  #define statement in the code. There are no other configuration
+  options.
 
 ## Configure a buzzer threshold increase via the web interface
 
@@ -41,7 +53,7 @@
 
 * When you have disabled the buzzer or have extended the buzzer
   threshold there is no more feedback at which ppm level you are - the
-  ampel will just quietly blink ahead. 
+  Ampel will just quietly blink ahead. 
   
   This firmware adds a more intense blinking mode that starts at the
   original buzzer threshold, say 1600 ppm.
