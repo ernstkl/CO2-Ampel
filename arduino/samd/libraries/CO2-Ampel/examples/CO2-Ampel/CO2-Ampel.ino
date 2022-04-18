@@ -8,6 +8,7 @@
   Serielle Befehle
     R=0      - Remote/Fernsteuerung aus
     R=1      - Remote/Fernsteuerung an
+    R=R      - Reset
     V?       - Firmwareversion abfragen
     S=1      - Save/Speichern
     L=RRGGBB - LED-Farbe (000000-FFFFFF)
@@ -33,8 +34,11 @@
   Die Kalibrierung des Sensors bleibt ebenfalls erhalten.
 */
 
-#define VERSION "23"
-#define COVID 0 //1=COVID CO2-Werte
+#define VERSION "25"
+
+#define COVID      0 //1 = COVID CO2-Werte
+#define WIFI_AMPEL 0 //1 = Version mit WiFi/WLAN
+#define PRO_AMPEL  0 //1 = Pro Version mit Drucksensor
 
 //--- CO2-Werte ---
 #if COVID
@@ -53,8 +57,16 @@
   #define START_BUZZER       1600 //>=1600ppm
 #endif
 
-//--- Messintervall ---
-#define INTERVALL          2 //2-1800s (nur SCD30, SCD4X immer 5s)
+//--- WiFi/WLAN ---
+#define WIFI_SSID          "" //WiFi SSID
+#define WIFI_CODE          "" //WiFi Passwort
+#define WIFI_NM            255,255,255,  0 //Netzmaske
+#define WIFI_IP              0,  0,  0,  0 //Lokale IP-Adresse, 0=DHCP
+#define WIFI_GW            192,168,  1,100 //Gateway IP-Adresse
+#define WIFI_DNS           192,168,  1,100 //DNS IP-Adresse
+
+//--- MQTT ---
+#define MQTT_SERVER        "" //Hostname oder IP-Adresse, leer lassen zum Deaktivieren
 
 //--- Ampelhelligkeit (LEDs) ---
 #define HELLIGKEIT         180 //1-255 (255=100%, 179=70%)
@@ -65,14 +77,8 @@
 #define LICHT_DUNKEL       20   //<20 -> dunkel
 #define LICHT_INTERVALL    60 //10-120min (Sensorpruefung)
 
-//--- WiFi/WLAN ---
-#define WIFI_SSID          "" //WiFi SSID
-#define WIFI_CODE          "" //WiFi Passwort
-#define MQTT_SERVER        "" //Hostname oder IP-Adresse, leer lassen zum Deaktivieren
-
 //--- Allgemein ---
-#define PRO_AMPEL          0 //1 = Pro Version mit Drucksensor
-#define WIFI_AMPEL         0 //1 = Version mit WiFi/WLAN
+#define INTERVALL          2 //2-1800s Messintervall (nur SCD30, SCD4X immer 5s)
 #define AMPEL_DURCHSCHNITT 1 //1 = CO2 Durchschnitt fuer Ampel verwenden
 #define AUTO_KALIBRIERUNG  0 //1 = automatische Kalibrierung (ASC) an (erfordert 7 Tage Dauerbetrieb mit 1h Frischluft pro Tag)
 #define BUZZER             1 //Buzzer aktivieren
@@ -84,6 +90,7 @@
 #define BAUDRATE           9600 //9600 Baud
 #define STARTWERT          500 //500ppm, CO2-Startwert
 
+//--- Farben ---
 #define FARBE_BLAU         0x007CB0 //0x0000FF, Himmelblau: 0x007CB0
 #define FARBE_GRUEN        0x00FF00 //0x00FF00
 #define FARBE_GELB         0xFF7F00 //0xFF7F00
@@ -143,6 +150,10 @@ typedef struct
   unsigned int buzzer;
   char wifi_ssid[64+1];
   char wifi_code[64+1];
+  IPAddress netmask;
+  IPAddress ip_local;
+  IPAddress ip_gw;
+  IPAddress ip_dns;
   char mqtt_server[64+1];
 } SETTINGS;
 
@@ -731,30 +742,30 @@ void urldecode(char *src) //URL Parameter dekodieren
     if((*src == '%') && ((a = src[1]) && (b = src[2])) && (isxdigit((uint8_t)a) && isxdigit((uint8_t)b))) 
     {
       if (a >= 'a')
-        a -= 'a'-'A';
+        a -= 'a' - 'A';
 
       if (a >= 'A')
-        a -= ('A' - 10);
+        a -= 'A' - 10;
       else
         a -= '0';
 
       if (b >= 'a')
-        b -= 'a'-'A';
+        b -= 'a' - 'A';
 
       if (b >= 'A')
-        b -= ('A' - 10);
+        b -= 'A' - 10;
       else
         b -= '0';
 
       *dst++ = 16 * a + b;
       src += 3;
-    } 
-    else if (*src == '+') 
+    }
+    else if (*src == '+')
     {
       *dst++ = ' ';
       src++;
-    } 
-    else 
+    }
+    else
     {
       *dst++ = *src++;
     }
@@ -767,56 +778,201 @@ void urldecode(char *src) //URL Parameter dekodieren
 
 void webserver_service(void)
 {
+  static unsigned long t_check=0;
+  unsigned int status;
+
   if((features & FEATURE_WINC1500) == 0)
   {
     return;
   }
 
-  if(WiFi.status() == WL_IDLE_STATUS)
+  status = WiFi.status();
+
+  if(status == WL_IDLE_STATUS) //Verbindungsaufbau
   {
+    return;
+  }
+  else if((status == WL_CONNECT_FAILED) ||
+          (status == WL_CONNECTION_LOST) || 
+          (status == WL_DISCONNECTED)) //Verbindungsabbruch
+  {
+    if((millis()-t_check) > (1*60000UL)) //1min
+    {
+      t_check = millis();
+      wifi_start();
+    }
     return;
   }
 
-  if((WiFi.status() == WL_CONNECT_FAILED) ||
-     (WiFi.status() == WL_CONNECTION_LOST) || 
-     (WiFi.status() == WL_DISCONNECTED))
-  {
-    wifi_start();
-    return;
-  }
+  t_check = millis(); //Zeit speichern fuer Neuverbindung nach 1min
 
   WiFiClient client = server.available();
-  if(client) //Client verbunden
+  if(!client) //Client nicht verbunden
   {
-    //if(features & FEATURE_USB)
-    //{
-    //  Serial.println("WiFi client connected");
-    //}
-    boolean currentLineIsBlank = true;
-    while(client.connected())
+    return;
+  }
+  //if(features & FEATURE_USB)
+  //{
+  //  Serial.println("WiFi client connected");
+  //}
+  boolean currentLineIsBlank=true;
+  unsigned int pos=0;
+  char buf[1024];
+  char req[2][64+1]; //HTTP request
+  req[0][0] = 0;
+  char mqtt_server[64+1]; // MQTT server name
+  char req_passcode[5]; //4 character passcode
+  char threshold_ext_value[11]; //10 digit number
+  unsigned int req_type = 0; // holds id of the submitted field
+
+  while(client.connected())
+  {
+    if((millis()-t_check) > (5*1000UL)) //Stop nach 5s
     {
-      if(client.available())
+      break;
+    }
+    if(client.available())
+    {
+      char c = client.read();
+      if(c == '\n' && currentLineIsBlank) //Header zu Ende
       {
-        char c = client.read();
-        if(c == '\n' && currentLineIsBlank)
+        if(strncmp(req[0], "GET ", 4) && strncmp(req[0], "POST ", 5)) //kein GET oder POST
+        {
+          sprintf(buf, 
+              "HTTP/1.1 400 Bad Request\r\n" \
+              "Content-Type: text/plain\r\n" \
+              "Connection: close\r\n" \
+              "\r\n" \
+              "400 Bad Request\r\n"
+          );
+          client.print(buf);
+        }
+        else if(strncmp(req[0], "GET /json", 9) == 0) //JSON
+        {
+          if(features & (FEATURE_LPS22HB|FEATURE_BMP280))
+          {
+            sprintf(buf,
+                "HTTP/1.1 200 OK\r\n" \
+                "Content-Type: application/json\r\n" \
+                "Connection: close\r\n" \
+                "\r\n" \
+                "{\r\n" \
+                " \"c\": %i,\r\n" \
+                " \"t\": %.1f,\r\n" \
+                " \"h\": %.1f,\r\n" \
+                " \"p\": %.1f,\r\n" \
+                " \"u\": %.1f,\r\n" \
+                " \"l\": %i\r\n" \
+                "}\r\n",
+                co2_value, temp_value, humi_value, pres_value, temp2_value, light_value
+            );
+          }
+          else
+          {
+            sprintf(buf,
+                "HTTP/1.1 200 OK\r\n" \
+                "Content-Type: application/json\r\n" \
+                "Connection: close\r\n" \
+                "\r\n" \
+                "{\r\n" \
+                " \"c\": %i,\r\n" \
+                " \"t\": %.1f,\r\n" \
+                " \"h\": %.1f,\r\n" \
+                " \"l\": %i\r\n" \
+                "}\r\n",
+                co2_value, temp_value, humi_value, light_value
+            );
+          }
+          client.print(buf);
+        }
+        else if(strncmp(req[0], "GET /cmk-agent", 14) == 0) //Checkmk Agent
+        {
+          //CO2-Ampeln koennen so direkt ins Monitoring von checkmk.com 
+          //aufgenommen werden. Plugins sind nicht zwingend erforderlich.
+          //Da HTTP als Uebertragungsweg genutzt wird, "Data Source" 
+          //verwenden: wget -O - http://ip_address/cmk-agent
+          //Siehe: https://docs.checkmk.com/latest/de/datasource_programs.html
+          if(features & (FEATURE_LPS22HB|FEATURE_BMP280))
+          {
+            sprintf(buf,
+                "HTTP/1.1 200 OK\r\n" \
+                "Content-Type: text/plain\r\n" \
+                "Connection: close\r\n" \
+                "\r\n" \
+                //Plaintext im von Checkmk erwarteten Format
+                //Siehe: https://docs.checkmk.com/latest/en/devel_check_plugins.html
+                "<<<check_mk>>>\r\n" \
+                "AgentOS: arduino\r\n" \
+                //Check-Plugin fuer den Server erforderlich, um die Metriken auszuwerten 
+                "<<<watterott_co2ampel_plugin>>>\r\n" \
+                "co2 %i\r\n" \
+                "temp %.1f\r\n" \
+                "humidity %.1f\r\n" \
+                "lighting %i\r\n" \
+                "pressure %.1f\r\n" \
+                "temp2 %.1f\r\n" \
+                //Ad-hoc Check, der kein Server-Plugin benoetigt, nutzt Schwellwerte der Ampel.
+                //Achtung: Nur eine Zeile - der Checkmk-Server nimmt die Bewertung selbst an
+                //Hand der uebergebenen Schwellwerte vor. Die lesen wir hier aus der Ampel aus:
+                "<<<local:sep(0)>>>\r\n" \
+                "P \"CO2 level (ppm)\" co2ppm=%i;%i;%i CO2/ventilation control with Watterott CO2-Ampel, thresholds taken from sensor board.\r\n",
+                co2_value, temp_value, humi_value, light_value, pres_value, temp2_value,
+                co2_value, settings.range[1], settings.range[2]
+            );
+          }
+          else
+          {
+            sprintf(buf,
+                "HTTP/1.1 200 OK\r\n" \
+                "Content-Type: text/plain\r\n" \
+                "Connection: close\r\n" \
+                "\r\n" \
+                //Plaintext im von Checkmk erwarteten Format
+                //Siehe: https://docs.checkmk.com/latest/en/devel_check_plugins.html
+                "<<<check_mk>>>\r\n" \
+                "AgentOS: arduino\r\n" \
+                //Check-Plugin fuer den Server erforderlich, um die Metriken auszuwerten 
+                "<<<watterott_co2ampel_plugin>>>\r\n" \
+                "co2 %i\r\n" \
+                "temp %.1f\r\n" \
+                "humidity %.1f\r\n" \
+                "lighting %i\r\n" \
+                //Ad-hoc Check, der kein Server-Plugin benoetigt, nutzt Schwellwerte der Ampel.
+                //Achtung: Nur eine Zeile - der Checkmk-Server nimmt die Bewertung selbst an
+                //Hand der uebergebenen Schwellwerte vor. Die lesen wir hier aus der Ampel aus:
+                "<<<local:sep(0)>>>\r\n" \
+                "P \"CO2 level (ppm)\" co2ppm=%i;%i;%i CO2/ventilation control with Watterott CO2-Ampel, thresholds taken from sensor board.\r\n",
+                co2_value, temp_value, humi_value, light_value,
+                co2_value, settings.range[1], settings.range[2]
+            );
+          }
+          client.print(buf);
+        }
+        else if(strncmp(req[0], "GET /favicon", 12) == 0) //Favicon 
+        {
+          sprintf(buf, 
+              "HTTP/1.1 404 Not Found\r\n" \
+              "Content-Type: text/plain\r\n" \
+              "Connection: close\r\n" \
+              "\r\n" \
+              "404 Not Found\r\n"
+          );
+          client.print(buf);
+        }
+        else
         {
           //HTTP Post Daten verarbeiten
-          if(client.available())
+          if((strncmp(req[0], "POST ", 5) == 0) && client.available())
           {
-            unsigned int req_data=0;
-            char req[2][64+1];
             req[0][0] = 0; //SSID
             req[1][0] = 0; //Code
 
-            unsigned int mqtt_server_req=0;
-            char mqtt_server[64+1];
+            mqtt_server[0] = 0; // MQTT server name
 
-            unsigned int calib_req=0;
-            char req_passcode[5]; //4 character passcode
+            req_passcode[0] = 0; // calibration passcode
 
-            unsigned int threshold_req=0;
-            char threshold_ext_value[11]; //10 digit number
-
+            threshold_ext_value[0] = 0; // 10 digit number
+            
             for(unsigned int r=0, i=0, last_c=0; client.available();)
             {
               c = client.read();
@@ -833,46 +989,44 @@ void webserver_service(void)
               {
                 req[r-1][i++] = c;
                 req[r-1][i] = 0;
-                req_data = 1;
               }
-	      else if((r == 3)) //3 (mqtt server name)
+              else if((r == 3)) //3 (mqtt server name)
               {
                 mqtt_server[i++] = c;
                 mqtt_server[i] = 0;
-                mqtt_server_req = 1;
-	      }
+              }
               else if((r == 4) && (i < 4)) //4 (calibration passcode)
               {
                 req_passcode[i++] = c;
                 req_passcode[i] = 0;
-                calib_req = 1;
               }
               else if((r == 5) && (i < 10)) //5 (buzzer threshold)
               {
                 threshold_ext_value[i++] = c;
                 threshold_ext_value[i] = 0;
-                threshold_req = 1;
               }
               last_c = c;
+              req_type = r;
             }
-            if(req_data)
+            if(req_type==2)
             {
-              urldecode(req[0]);
-              //Serial.println(req[0]);
-              strcpy(settings.wifi_ssid, req[0]);
-              urldecode(req[1]);
-              //Serial.println(req[1]);
-              strcpy(settings.wifi_code, req[1]);
-              flash_settings.write(settings); //Einstellungen speichern
+              urldecode(req[0]); //Serial.println(req[0]);
+              urldecode(req[1]); //Serial.println(req[1]);
+              if(strcmp(req[0], settings.wifi_ssid) || strcmp(req[1], settings.wifi_code))
+              {
+                strcpy(settings.wifi_ssid, req[0]);
+                strcpy(settings.wifi_code, req[1]);
+                flash_settings.write(settings); //Einstellungen speichern
+              }
             }
-            if(mqtt_server_req)
+            else if(req_type==3)
             {
               urldecode(mqtt_server);
               //Serial.println(mqtt_server);
               strcpy(settings.mqtt_server, mqtt_server);
               flash_settings.write(settings); //Einstellungen speichern
             }
-            if(calib_req)
+            else if(req_type==4)
             {
               urldecode(req_passcode);
               Serial.print("got passcode: ");
@@ -887,7 +1041,7 @@ void webserver_service(void)
                 Serial.println("done.");
               }
             }
-            if(threshold_req)
+            else if(req_type==5)
             {
               urldecode(threshold_ext_value);
               Serial.print("setting threshold_ext_value, input is: ");
@@ -896,31 +1050,64 @@ void webserver_service(void)
               flash_settings.write(settings); //Einstellungen speichern
             }
           }
-          //HTTP Header
-          client.println("HTTP/1.1 200 OK");
-          client.println("Content-Type: text/html");
-          client.println("Connection: close");
-          client.println();
-          //HTML Daten
-          client.println("<!DOCTYPE html>");
-          client.println("<html><head><title>CO2-Ampel</title>");
-          client.println("<meta http-equiv='content-type' content='text/html; charset=utf-8'>");
-          client.println("</head>");
-          client.println("<body>");
-          client.println("<br><span style='font-size:3em'>");
-          client.print("CO2 (ppm): ");
-          client.println(co2_value);
-          client.print("<br>Temperatur (C): ");
-          client.println(temp_value, 1);
-          client.print("<br>Luftfeuchte (%): ");
-          client.println(humi_value, 1);
+          //HTTP Header+Daten
+          sprintf(buf,
+              "HTTP/1.1 200 OK\r\n" \
+              "Content-Type: text/html\r\n" \
+              "Connection: close\r\n" \
+              "\r\n"
+              "<!DOCTYPE html>\r\n" \
+              "<html>\r\n" \
+              "<head>\r\n" \
+              "<meta charset=utf-8>\r\n" \
+              "<meta http-equiv=refresh content=120>\r\n" \
+              "<title>CO2-Ampel</title>\r\n" \
+              "<link rel=icon href=\"data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA=\">\r\n" \
+              "<style>\r\n" \
+              "body { font-size:1.0em; font-family:Lato,sans-serif; padding:10px; }\r\n" \
+              "#data { font-size:3.0em; }\r\n" \
+              "#wifi { font-size:1.0em; display:none; }\r\n" \
+              "#info { font-size:0.9em; }\r\n" \
+              "</style>\r\n" \
+              "<script>\r\n" \
+              "function wifi() {\r\n" \
+              "var box = document.getElementById('wifi');\r\n" \
+              "if(box.style.display != 'block') { box.style.display = 'block'; }\r\n" \
+              "else { box.style.display = 'none'; }\r\n" \
+              "}\r\n" \
+              "</script>\r\n" \
+              "</head>\r\n" \
+              "<body>\r\n"
+          );
+          client.print(buf);
+
           if(features & (FEATURE_LPS22HB|FEATURE_BMP280))
           {
-            client.print("<br>Druck (hPa): ");
-            client.println(pres_value, 1);
-            client.print("<br>Temperatur (C): ");
-            client.println(temp2_value, 1);
+            sprintf(buf,
+                "<div id=data>\r\n" \
+                "CO2 (ppm): %i<br/>\r\n" \
+                "Temperatur (&deg;C): %.1f<br/>\r\n" \
+                "Luftfeuchte (% rel): %.1f<br/>\r\n" \
+                "Druck (hPa): %.1f<br/>\r\n" \
+                "Temperatur (&deg;C): %.1f<br/>\r\n" \
+                "</div>\r\n",
+                co2_value, temp_value, humi_value, pres_value, temp2_value
+            );
           }
+          else
+          {
+            sprintf(buf,
+                "<div id=data>\r\n" \
+                "CO2 (ppm): %i<br/>\r\n" \
+                "Temperatur (&deg;C): %.1f<br/>\r\n" \
+                "Luftfeuchte (% rel): %.1f<br/>\r\n" \
+                "</div>\r\n",
+                co2_value, temp_value, humi_value
+            );
+          }
+          client.print(buf);
+
+          // <todo> use buf
           client.println("<br></span><br><hr><br>");
           client.println("<br><b>Buzzer hinausschieben (ppm)</b>");
           client.print("<br>Aktuell: Buzzer ertönt ab ");
@@ -939,18 +1126,6 @@ void webserver_service(void)
           client.println(" s.");
 
           client.println("<br></span><br><hr><br>");
-          client.print("<br><b>WiFi Login</b>");
-          client.println("<form method=post>");
-          client.print("SSID <input name=1 size=20 maxlength=64 placeholder=SSID value='");
-          client.print(settings.wifi_ssid); //SSID
-          client.println("'><br>");
-          client.print("Code <input name=2 size=20 maxlength=64 placeholder=Password value='");
-          //client.print(settings.wifi_code); //Passwort
-          client.println("'><br>");
-          client.println("<input type=submit value=Speichern> (Neustart erforderlich)");
-          client.println("</form>");
-
-          client.println("<br></span><br><hr><br>");
           client.print("<br><b>MQTT Server</b>");
           client.println("<form method=post>");
           client.print("Hostname oder IP-Adresse <input name=3 size=20 maxlength=64 placeholder=MQTT Server value='");
@@ -967,31 +1142,57 @@ void webserver_service(void)
           client.println("<input type=submit value=Ausführen> (Kein Neustart erforderlich. Erfolgreicher Abschluss ist daran zu erkennen, dass das Webinterface der Ampel wieder erreichbar ist, und dass die Status-LED nicht mehr schnell 5x/s blinkt, sondern im Sekundentakt blitzt.)");
           client.println("</form>");
 
-          client.print("<br><br><small>Firmware: v" VERSION);
-          if(features & FEATURE_WINC1500)
-          {
-            String fv = WiFi.firmwareVersion();
-            client.print(", WINC1500: ");
-            client.print(fv);
-          }
-          client.println("</small>");
+          // </todo>
 
-          client.println("</body></html>");
-          break;
+          String fv = WiFi.firmwareVersion();
+          byte mac[6];
+          WiFi.macAddress(mac);
+          sprintf(buf,
+              "<br/><br/>\r\n" \
+              "<a href='/json'>JSON</a> - <a href='/cmk-agent'>Checkmk</a> - <a href='#' onclick='wifi();'>WiFi Login</a>\r\n" \
+              "<br/><br/>\r\n" \
+              "<div id=wifi>\r\n" \
+              "<form method=post>\r\n" \
+              "SSID <input name=1 size=30 maxlength=64 placeholder=SSID value='%s'><br/>\r\n" \
+              "Code <input name=2 size=30 maxlength=64 placeholder=Password value=''><br/>\r\n" \
+              "<input type=submit> (Neustart erforderlich, requires reboot)<br/>\r\n" \
+              "</form><br/>\r\n" \
+              "<div id=info>\r\n" \
+              "Firmware: v" VERSION ", \r\n" \
+              "WINC1500: %s, \r\n" \
+              "MAC: %02x:%02x:%02x:%02x:%02x:%02x\r\n" \
+              "</div>\r\n" \
+              "</div>\r\n" \
+              "</body>\r\n" \
+              "</html>\r\n",
+              settings.wifi_ssid, /*settings.wifi_code, */ fv.c_str(), 
+              mac[5], mac[4], mac[3], mac[2], mac[1], mac[0]
+          );
+          client.print(buf);
         }
-        if(c == '\n')
+        break;
+      }
+      else //save request
+      {
+        if(pos < (sizeof(req[0])-1))
         {
-          currentLineIsBlank = true;
-        }
-        else if(c != '\r')
-        {
-          currentLineIsBlank = false;
+          req[0][pos++] = c;
+          req[0][pos] = 0;
         }
       }
+      if(c == '\n')
+      {
+        currentLineIsBlank = true;
+      }
+      else if(c != '\r')
+      {
+        currentLineIsBlank = false;
+      }
     }
-    delay(2); //2ms warten zum Senden
-    client.stop();
   }
+
+  delay(20); //20ms warten zum Senden
+  client.stop();
 
   return;
 }
@@ -1574,6 +1775,11 @@ unsigned int wifi_start_ap(void)
   byte mac[6];
   char ssid[32];
 
+  if(features & FEATURE_USB)
+  {
+    Serial.println("WiFi AP start...");
+  }
+
   WiFi.macAddress(mac); //MAC-Adresse abfragen
   sprintf(ssid, "CO2AMPEL-%X-%X", mac[1], mac[0]);
 
@@ -1611,6 +1817,11 @@ unsigned int wifi_start(void)
     return 1;
   }
 
+  if(features & FEATURE_USB)
+  {
+    Serial.println("WiFi connect...");
+  }
+
   WiFi.macAddress(mac); //MAC-Adresse abfragen
   sprintf(name, "CO2AMPEL-%X-%X", mac[1], mac[0]);
 
@@ -1624,13 +1835,23 @@ unsigned int wifi_start(void)
   }
 
   WiFi.hostname(name); //Hostname setzen
-  //WiFi.config(ip, dns, gateway, subnet);  //IP setzen
-  WiFi.begin(settings.wifi_ssid, settings.wifi_code); //verbinde WiFi Netzwerk
+  if(settings.ip_local[0] != 0) //statische IP
+  {
+    WiFi.config(settings.ip_local, settings.ip_dns, settings.ip_gw, settings.netmask);  //IP setzen
+  }
+  if(strlen(settings.wifi_code) > 0) //Passwort
+  {
+    WiFi.begin(settings.wifi_ssid, settings.wifi_code); //verbinde WiFi Netzwerk mit Passwort
+  }
+  else
+  {
+    WiFi.begin(settings.wifi_ssid); //verbinde WiFi Netzwerk ohne Passwort
+  }
 
   //auf Verbindung warten
   for(unsigned int t=0; WiFi.status() == WL_IDLE_STATUS; t++)
   {
-    if(t >= 5) //5s
+    if(t >= 6) //6s
     {
       break;
     }
@@ -1837,6 +2058,10 @@ void setup()
     strcpy(settings.wifi_ssid, WIFI_SSID);
     settings.wifi_code[0] = 0;
     strcpy(settings.wifi_code, WIFI_CODE);
+    settings.netmask      = IPAddress(WIFI_NM);
+    settings.ip_local     = IPAddress(WIFI_IP);
+    settings.ip_gw        = IPAddress(WIFI_GW);
+    settings.ip_dns       = IPAddress(WIFI_DNS);
     settings.mqtt_server[0] = 0;
     strcpy(settings.mqtt_server, MQTT_SERVER);
     settings.valid        = true;
@@ -2145,7 +2370,6 @@ void loop()
     if(check_sensors())
     {
       show_data();
-
       if(dark == 0)
       {
         status_led(2); //Status-LED
