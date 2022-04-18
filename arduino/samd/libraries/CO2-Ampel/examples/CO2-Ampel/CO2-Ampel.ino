@@ -412,10 +412,9 @@ void send_data_mqtt(void) // Daten auf mqtt-topic senden: tele/co2/<ab-cd>
     return;
   }
 
-  if ((WiFi.status() == WL_CONNECT_FAILED) ||
-     (WiFi.status() == WL_CONNECTION_LOST) || 
-     (WiFi.status() == WL_DISCONNECTED))
+  if (!(WiFi.status() == WL_CONNECTED))
   { 
+    // only proceed in Wifi client mode
     Serial.println("mqtt: no Wifi");
     return;
   }
@@ -2165,8 +2164,11 @@ void setup()
     }
   }
 
-  mqtt_start();
-
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    mqtt_start();
+  }
+  
   //Messung starten
   co2_value = co2_average = STARTWERT;
   if(features & FEATURE_SCD30)
