@@ -178,7 +178,7 @@ char mqtt_msg[5]; // maximal vierstellige Zahl plus null byte
 unsigned int features=0, remote_on=0, buzzer_timer=BUZZER_DELAY;
 unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
 float temp_value=20, temp_offset=TEMP_OFFSET, humi_value=50, pres_value=1013, pres_last=1013, temp2_value=20;
-// TODO move the following variables to loop(), as well as all code from ampel()
+
 float blink_freq=0;  // Hz, set in ampel()
 unsigned long on_intv=0, off_intv=0;
 
@@ -404,7 +404,6 @@ void show_data(void) //Daten anzeigen
 }
 
 void send_data_mqtt(void) // Daten auf mqtt-topic senden: tele/co2/<ab-cd>
-//TODO Ausführung des Codes schaltbar machen über Ampel-Webseite (2 Buttons)
 {
   if (settings.mqtt_server[0] == 0) 
   {
@@ -1034,7 +1033,7 @@ void webserver_service(void)
               //Serial.println(calib_passcode);
               if(strncmp(req_passcode, calib_passcode, 4) == 0)
               {
-                Serial.println("calibrating..");
+                Serial.print("calibrating..");
                 //start calibration procedure (2 min no response)
                 calibration();
                 Serial.println("done.");
@@ -1106,42 +1105,38 @@ void webserver_service(void)
           }
           client.print(buf);
 
-          // <todo> use buf
-          client.println("<br></span><br><hr><br>");
-          client.println("<br><b>Buzzer hinausschieben (ppm)</b>");
-          client.print("<br>Aktuell: Buzzer ertönt ab ");
-          client.print(settings.range[4]);
-          client.print(" plus ");
-          client.print(settings.start_buzzer_extra);
-          client.println(" ppm.");
-          client.println("<form method=post>");
-          client.print("Neu: plus ... <input name=5 size=20 maxlength=64 placeholder=Buzzer_ext value='");
-          client.print(0); //Buzzer-Schwelle
-          client.println("'><br>");
-          client.println("<input type=submit value=Speichern>");
-          client.println("</form>");
-          client.print("<br>Hinweis: Buzzer Verzögerung nach Start der Ampel ist konfiguriert auf ");
-          client.print(BUZZER_DELAY);
-          client.println(" s.");
+          sprintf(buf,
+              "<br></span><br><hr><br>\r\n" \
+              "<br><b>Buzzer hinausschieben (ppm)</b>\r\n" \
+              "<br>Aktuell: Buzzer ertönt ab %d plus %d ppm.\r\n" \
+              "<form method=post>\r\n" \
+              "Neu: plus ... <input name=5 size=20 maxlength=64 placeholder=Buzzer_ext value='0'><br>\r\n" \
+              "<input type=submit value=Speichern>\r\n" \
+              "</form>\r\n" \
+              "<br>Hinweis: Buzzer Verzögerung nach Start der Ampel ist konfiguriert auf %d sec.\r\n",
+              settings.range[4], settings.start_buzzer_extra, BUZZER_DELAY
+          );
+          client.print(buf);
 
-          client.println("<br></span><br><hr><br>");
-          client.print("<br><b>MQTT Server</b>");
-          client.println("<form method=post>");
-          client.print("Hostname oder IP-Adresse <input name=3 size=20 maxlength=64 placeholder=MQTT Server value='");
-          client.print(settings.mqtt_server); //MQTT Server
-          client.println("'><br>");
-          client.println("<input type=submit value=Speichern> (Neustart erforderlich)");
-          client.println("</form>");
-
-          client.println("<br></span><br><hr><br>");
-          client.print("<br><b>Sensor-Kalibrierung an Frischluft: calibration() Prozedur starten wie über Menu (3), 2 min</b>");
-          client.println("<form method=post>");
-          client.print("Passcode <input name=4 size=4 maxlength=4 placeholder=code>");
-          client.println("<br>");
-          client.println("<input type=submit value=Ausführen> (Kein Neustart erforderlich. Erfolgreicher Abschluss ist daran zu erkennen, dass das Webinterface der Ampel wieder erreichbar ist, und dass die Status-LED nicht mehr schnell 5x/s blinkt, sondern im Sekundentakt blitzt.)");
-          client.println("</form>");
-
-          // </todo>
+          sprintf(buf,
+              "<br></span><br><hr><br>\r\n" \
+              "<br><b>MQTT Server</b>" \
+              "<form method=post>\r\n" \
+              "Hostname oder IP-Adresse <input name=3 size=20 maxlength=64 placeholder=MQTT Server value='%s'><br>\r\n" \
+              "<input type=submit value=Speichern> (Neustart erforderlich)\r\n" \
+              "</form>\r\n",
+              settings.mqtt_server
+          );
+          client.print(buf);
+      
+          sprintf(buf,
+              "<br></span><br><hr><br>\r\n" \
+              "<br><b>Sensor-Kalibrierung an Frischluft: calibration() Prozedur starten wie über Menu (3), 2 min</b><form method=post>\r\n" \
+              "Passcode <input name=4 size=4 maxlength=4 placeholder=code><br>\r\n" \
+              "<input type=submit value=Ausführen> (Kein Neustart erforderlich. Erfolgreicher Abschluss ist daran zu erkennen, dass das Webinterface der Ampel wieder erreichbar ist, und dass die Status-LED nicht mehr schnell 5x/s blinkt, sondern im Sekundentakt blitzt.)\r\n" \
+              "</form>\r\n"
+          );
+          client.print(buf);
 
           String fv = WiFi.firmwareVersion();
           byte mac[6];
