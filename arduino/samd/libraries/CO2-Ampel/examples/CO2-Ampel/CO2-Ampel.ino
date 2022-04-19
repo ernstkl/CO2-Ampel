@@ -1764,6 +1764,11 @@ unsigned int wifi_start(void)
     status_led(1000); //Status-LED
   }
 
+  if(!(WiFi.status() == WL_CONNECTED))
+  {
+    return 1;
+  }
+
   server.begin(); //starte Webserver
 
   return 0;
@@ -2228,7 +2233,6 @@ void loop()
     if(check_sensors())
     {
       show_data();
-
       if(dark == 0)
       {
         status_led(2); //Status-LED
