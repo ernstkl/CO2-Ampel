@@ -131,6 +131,7 @@ typedef struct
   boolean valid;
   unsigned int brightness;
   unsigned int range[5];
+  unsigned int start_buzzer_extra;
   unsigned int buzzer;
   char wifi_ssid[64+1];
   char wifi_code[64+1];
@@ -749,6 +750,8 @@ void webserver_service(void)
   char buf[1024];
   char req[2][64+1]; //HTTP request
   req[0][0] = 0;
+  char threshold_ext_value[11]; //10 digit number
+  unsigned int req_type = 0; // holds id of the submitted field
   while(client.connected())
   {
     if((millis()-t_check) > (5*1000UL)) //Stop nach 5s
@@ -890,6 +893,9 @@ void webserver_service(void)
           {
             req[0][0] = 0; //SSID
             req[1][0] = 0; //Code
+
+            threshold_ext_value[0] = 0; // 10 digit number
+            
             for(unsigned int r=0, i=0, last_c=0; client.available();)
             {
               c = client.read();
@@ -907,14 +913,31 @@ void webserver_service(void)
                 req[r-1][i++] = c;
                 req[r-1][i] = 0;
               }
+              else if((r == 5) && (i < 10)) //5 (buzzer threshold)
+              {
+                threshold_ext_value[i++] = c;
+                threshold_ext_value[i] = 0;
+              }
               last_c = c;
+              req_type = r;
             }
-            urldecode(req[0]); //Serial.println(req[0]);
-            urldecode(req[1]); //Serial.println(req[1]);
-            if(strcmp(req[0], settings.wifi_ssid) || strcmp(req[1], settings.wifi_code))
+            if(req_type==2)
             {
-              strcpy(settings.wifi_ssid, req[0]);
-              strcpy(settings.wifi_code, req[1]);
+              urldecode(req[0]); //Serial.println(req[0]);
+              urldecode(req[1]); //Serial.println(req[1]);
+              if(strcmp(req[0], settings.wifi_ssid) || strcmp(req[1], settings.wifi_code))
+              {
+                strcpy(settings.wifi_ssid, req[0]);
+                strcpy(settings.wifi_code, req[1]);
+                flash_settings.write(settings); //Einstellungen speichern
+              }
+            }
+            else if(req_type==5)
+            {
+              urldecode(threshold_ext_value);
+              Serial.print("setting threshold_ext_value, input is: ");
+              Serial.println((unsigned int) atoi(threshold_ext_value));
+              settings.start_buzzer_extra = (unsigned int) max(0, atoi(threshold_ext_value));
               flash_settings.write(settings); //Einstellungen speichern
             }
           }
@@ -975,7 +998,20 @@ void webserver_service(void)
           }
           client.print(buf);
 
-          String fv = WiFi.firmwareVersion();
+          sprintf(buf,
+              "<br></span><br><hr><br>\r\n" \
+              "<br><b>Buzzer hinausschieben (ppm)</b>\r\n" \
+              "<br>Aktuell: Buzzer ertönt ab %d plus %d ppm.\r\n" \
+              "<form method=post>\r\n" \
+              "Neu: plus ... <input name=5 size=20 maxlength=64 placeholder=Buzzer_ext value='0'><br>\r\n" \
+              "<input type=submit value=Speichern>\r\n" \
+              "</form>\r\n" \
+              "<br>Hinweis: Buzzer Verzögerung nach Start der Ampel ist konfiguriert auf %d sec.\r\n",
+              settings.range[4], settings.start_buzzer_extra, BUZZER_DELAY
+          );
+          client.print(buf);
+
+	  String fv = WiFi.firmwareVersion();
           byte mac[6];
           WiFi.macAddress(mac);
           sprintf(buf,
@@ -1862,6 +1898,7 @@ void setup()
     settings.range[2]     = START_ROT;
     settings.range[3]     = START_ROT_BLINKEN;
     settings.range[4]     = START_BUZZER;
+    settings.start_buzzer_extra = 0;
     settings.buzzer       = BUZZER;
     settings.wifi_ssid[0] = 0;
     strcpy(settings.wifi_ssid, WIFI_SSID);
@@ -2038,7 +2075,7 @@ void ampel(unsigned int co2)
   }
 
   //Buzzer
-  if(co2 < settings.range[4])
+  if(co2 < settings.range[4] + settings.start_buzzer_extra)
   {
     buzzer(0); //Buzzer aus
   }
