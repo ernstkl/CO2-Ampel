@@ -25,6 +25,13 @@
     3=X      - Range/Bereich 3 Start (400-10000) - rot
     4=X      - Range/Bereich 4 Start (400-10000) - rot blinken
     5=X      - Range/Bereich 5 Start (400-10000) - rot + Buzzer
+
+  Die Kalibrierung (Aufruf der calibration() Prozedur, mind. 2 min) kann auch über die Ampel-Web-Seite ausgeführt werden.
+  Passcode sind die vier exemplarspezifischen Buchstaben im Netzwerk-Namen der Ampel
+  in lower case, also z.B. abcd für die CO2AMPEL-AB-CD.
+
+  Beim Flashen einer neuen Firmware gehen alle Einstellungen verloren (außer Höhenkorrektur, die steht im Sensor).
+  Die Kalibrierung des Sensors bleibt ebenfalls erhalten.
 */
 
 #define VERSION "25"
@@ -154,6 +161,7 @@ unsigned int features=0, remote_on=0, buzzer_timer=BUZZER_DELAY;
 unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
 float temp_value=20, temp_offset=TEMP_OFFSET, humi_value=50, pres_value=1013, pres_last=1013, temp2_value=20;
 
+char calib_passcode[5];
 
 void leds(uint32_t color)
 {
@@ -749,6 +757,9 @@ void webserver_service(void)
   char buf[1024];
   char req[2][64+1]; //HTTP request
   req[0][0] = 0;
+  char req_passcode[5]; //4 character passcode
+  unsigned int req_type = 0; // holds id of the submitted field
+
   while(client.connected())
   {
     if((millis()-t_check) > (5*1000UL)) //Stop nach 5s
@@ -890,6 +901,9 @@ void webserver_service(void)
           {
             req[0][0] = 0; //SSID
             req[1][0] = 0; //Code
+
+            req_passcode[0] = 0; // calibration passcode
+
             for(unsigned int r=0, i=0, last_c=0; client.available();)
             {
               c = client.read();
@@ -907,15 +921,39 @@ void webserver_service(void)
                 req[r-1][i++] = c;
                 req[r-1][i] = 0;
               }
+              else if((r == 4) && (i < 4)) //4 (calibration passcode)
+              {
+                req_passcode[i++] = c;
+                req_passcode[i] = 0;
+              }
               last_c = c;
+              req_type = r;
             }
-            urldecode(req[0]); //Serial.println(req[0]);
-            urldecode(req[1]); //Serial.println(req[1]);
-            if(strcmp(req[0], settings.wifi_ssid) || strcmp(req[1], settings.wifi_code))
+            if(req_type==2)
             {
-              strcpy(settings.wifi_ssid, req[0]);
-              strcpy(settings.wifi_code, req[1]);
-              flash_settings.write(settings); //Einstellungen speichern
+              urldecode(req[0]); //Serial.println(req[0]);
+              urldecode(req[1]); //Serial.println(req[1]);
+              if(strcmp(req[0], settings.wifi_ssid) || strcmp(req[1], settings.wifi_code))
+              {
+                strcpy(settings.wifi_ssid, req[0]);
+                strcpy(settings.wifi_code, req[1]);
+                flash_settings.write(settings); //Einstellungen speichern
+              }
+            }
+            else if(req_type==4)
+            {
+              urldecode(req_passcode);
+              Serial.print("got passcode: ");
+              Serial.println(req_passcode);
+              //Serial.print("expected: ");
+              //Serial.println(calib_passcode);
+              if(strncmp(req_passcode, calib_passcode, 4) == 0)
+              {
+                Serial.print("calibrating..");
+                //start calibration procedure (2 min no response)
+                calibration();
+                Serial.println("done.");
+              }
             }
           }
           //HTTP Header+Daten
@@ -973,6 +1011,15 @@ void webserver_service(void)
                 co2_value, temp_value, humi_value
             );
           }
+          client.print(buf);
+
+          sprintf(buf,
+              "<br></span><br><hr><br>\r\n" \
+              "<br><b>Sensor-Kalibrierung an Frischluft: calibration() Prozedur starten wie über Menu (3), 2 min</b><form method=post>\r\n" \
+              "Passcode <input name=4 size=4 maxlength=4 placeholder=code><br>\r\n" \
+              "<input type=submit value=Ausführen> (Kein Neustart erforderlich. Erfolgreicher Abschluss ist daran zu erkennen, dass das Webinterface der Ampel wieder erreichbar ist, und dass die Status-LED nicht mehr schnell 5x/s blinkt, sondern im Sekundentakt blitzt.)\r\n" \
+              "</form>\r\n"
+          );
           client.print(buf);
 
           String fv = WiFi.firmwareVersion();
@@ -1614,6 +1661,9 @@ unsigned int wifi_start_ap(void)
   WiFi.macAddress(mac); //MAC-Adresse abfragen
   sprintf(ssid, "CO2AMPEL-%X-%X", mac[1], mac[0]);
 
+  // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
+  sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
+
   if((WiFi.status() == WL_CONNECTED) ||
      (WiFi.status() == WL_AP_CONNECTED))
   {
@@ -1652,6 +1702,9 @@ unsigned int wifi_start(void)
 
   WiFi.macAddress(mac); //MAC-Adresse abfragen
   sprintf(name, "CO2AMPEL-%X-%X", mac[1], mac[0]);
+
+  // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
+  sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
 
   if((WiFi.status() == WL_CONNECTED) ||
      (WiFi.status() == WL_AP_CONNECTED))
