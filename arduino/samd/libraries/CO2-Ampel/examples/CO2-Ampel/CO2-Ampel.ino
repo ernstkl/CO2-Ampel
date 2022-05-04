@@ -154,6 +154,8 @@ unsigned int features=0, remote_on=0, buzzer_timer=BUZZER_DELAY;
 unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
 float temp_value=20, temp_offset=TEMP_OFFSET, humi_value=50, pres_value=1013, pres_last=1013, temp2_value=20;
 
+unsigned int notification_low_ppm_done=1;
+unsigned int notification_high_ppm_done=1;
 
 void leds(uint32_t color)
 {
@@ -1723,6 +1725,9 @@ void setup()
     run_menu = 1;
   }
 
+  //Anfang des Startvorgangs signalisieren
+  long_short_beep();
+
   //WS2812
   ws2812.begin();
   ws2812.setBrightness(HELLIGKEIT); //0...255
@@ -1995,6 +2000,9 @@ void setup()
     co2_value = co2_average = START_ROT;
   }
 
+  //Ende des Startvorgangs signalisieren
+  triple_beep();
+
   return;
 }
 
@@ -2057,6 +2065,33 @@ void ampel(unsigned int co2)
   return;
 }
 
+void short_beep() {
+    analogWrite(PIN_BUZZER, 255/2); //Buzzer an
+    delay(100);
+    analogWrite(PIN_BUZZER, 0); //Buzzer aus
+}
+
+void long_beep() {
+    analogWrite(PIN_BUZZER, 255/2); //Buzzer an
+    delay(1000);
+    analogWrite(PIN_BUZZER, 0); //Buzzer aus
+}
+
+// für Signalisierung Lüftungsende
+void triple_beep() {
+  short_beep();
+  delay(150);
+  short_beep();
+  delay(150);
+  short_beep();
+}
+
+// für Vorwarnung Lüftung erforderlich
+void long_short_beep() {
+  long_beep();
+  delay(150);
+  short_beep();
+}
 
 void loop()
 {
@@ -2148,6 +2183,31 @@ void loop()
     #else
       ampel(co2_value);
     #endif
+  }
+
+  // Lüftungsende signalisieren mit 3x Buzzer, wenn ppm von größer 600 nach kleiner 500 sinkt
+  // (mit Hysterese zur Stabilisierung)
+  if (co2_average > START_GRUEN) {
+    notification_low_ppm_done = 0;  // Flag zurücksetzen, neue Benachrichtigung ermöglichen
+  } else if (co2_average < START_GRUEN - 100) {
+    // Benachrichtigungs-Schwelle ist unterschritten ("Lüften fertig")
+    if (notification_low_ppm_done == 0) {
+        triple_beep();
+        // weitere Benachrichtigungen abstellen
+        notification_low_ppm_done = 1;
+    }
+  }
+
+  // analog dazu eine Vorwarnung 100ppm bevor die Buzzer-Warnung anfängt
+  if (co2_average < START_ROT_BLINKEN) {
+    notification_high_ppm_done = 0;  // Flag zurücksetzen, neue Benachrichtigung ermöglichen
+  } else if (co2_average > START_ROT_BLINKEN + 100) {
+    // Benachrichtigungs-Schwelle ist überschritten ("Vorwarnung buzzer")
+    if (notification_high_ppm_done == 0) {
+        long_short_beep();
+        // weitere Benachrichtigungen abstellen
+        notification_high_ppm_done = 1;
+    }
   }
 
   //Lichtsensor
