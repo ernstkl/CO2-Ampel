@@ -58,6 +58,9 @@
 #define WIFI_GW            192,168,  1,100 //Gateway IP-Adresse
 #define WIFI_DNS           192,168,  1,100 //DNS IP-Adresse
 
+//--- MQTT ---
+#define MQTT_SERVER        "" //Hostname oder IP-Adresse, leer lassen zum Deaktivieren
+
 //--- Ampelhelligkeit (LEDs) ---
 #define HELLIGKEIT         180 //1-255 (255=100%, 179=70%)
 #define HELLIGKEIT_DUNKEL  20  //1-255 (255=100%, 25=10%)
@@ -119,6 +122,7 @@ enum Features
 #include <Arduino_LPS22HB.h>
 #include <Adafruit_NeoPixel.h>
 #include <WiFi101.h>
+#include <PubSubClient.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
@@ -138,6 +142,7 @@ typedef struct
   IPAddress ip_local;
   IPAddress ip_gw;
   IPAddress ip_dns;
+  char mqtt_server[64+1];
 } SETTINGS;
 
 SETTINGS settings;
@@ -150,10 +155,17 @@ Adafruit_NeoPixel ws2812 = Adafruit_NeoPixel(NUM_LEDS, PIN_WS2812, NEO_GRB + NEO
 Adafruit_SSD1306 display(128, 64); //128x64 Pixel
 WiFiServer server(80); //Webserver Port 80
 
+// network connection objects for MQTT
+WiFiClient mqtt_wifi_client;
+PubSubClient mqtt_client(mqtt_wifi_client);
+
+char mqtt_topic[15];
+char mqtt_client_name[16];
+char mqtt_msg[5]; // maximal vierstellige Zahl plus null byte
+
 unsigned int features=0, remote_on=0, buzzer_timer=BUZZER_DELAY;
 unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
 float temp_value=20, temp_offset=TEMP_OFFSET, humi_value=50, pres_value=1013, pres_last=1013, temp2_value=20;
-
 
 void leds(uint32_t color)
 {
@@ -371,6 +383,43 @@ void show_data(void) //Daten anzeigen
   return;
 }
 
+void send_data_mqtt(void) // Daten auf mqtt-topic senden: tele/co2/<ab-cd>
+{
+  if (settings.mqtt_server[0] == 0) 
+  {
+    // not configured
+    return;
+  }
+
+  if (!(WiFi.status() == WL_CONNECTED))
+  { 
+    // only proceed in Wifi client mode
+    Serial.println("mqtt: no Wifi");
+    return;
+  }
+
+
+  if (!mqtt_client.connected()) 
+  {
+    // connect or reconnect - timeout is 2 (hardcoded in WiFiSocket.cpp)
+    Serial.print("mqtt: connecting to ");
+    Serial.print(settings.mqtt_server);
+    Serial.print(" ...");
+    int tstart_connect = millis();
+    if (!mqtt_client.connect(mqtt_client_name)) 
+    {
+      Serial.print("failed after ");
+      Serial.print(millis() - tstart_connect);
+      Serial.println(" ms.");
+      return;
+    }
+    Serial.println(" done.");
+  }
+
+  sprintf(mqtt_msg, "%d", co2_average);
+  mqtt_client.publish(mqtt_topic, mqtt_msg);
+  mqtt_client.loop();  
+}
 
 void serial_service(void)
 {
@@ -749,6 +798,8 @@ void webserver_service(void)
   char buf[1024];
   char req[2][64+1]; //HTTP request
   req[0][0] = 0;
+  char mqtt_server[64+1]; // MQTT server name
+  unsigned int req_type = 0; // holds id of the submitted field
   while(client.connected())
   {
     if((millis()-t_check) > (5*1000UL)) //Stop nach 5s
@@ -890,6 +941,9 @@ void webserver_service(void)
           {
             req[0][0] = 0; //SSID
             req[1][0] = 0; //Code
+
+            mqtt_server[0] = 0; // MQTT server name
+
             for(unsigned int r=0, i=0, last_c=0; client.available();)
             {
               c = client.read();
@@ -907,14 +961,30 @@ void webserver_service(void)
                 req[r-1][i++] = c;
                 req[r-1][i] = 0;
               }
+              else if((r == 3)) //3 (mqtt server name)
+              {
+                mqtt_server[i++] = c;
+                mqtt_server[i] = 0;
+              }
               last_c = c;
+              req_type = r;
             }
-            urldecode(req[0]); //Serial.println(req[0]);
-            urldecode(req[1]); //Serial.println(req[1]);
-            if(strcmp(req[0], settings.wifi_ssid) || strcmp(req[1], settings.wifi_code))
+            if(req_type==2)
             {
-              strcpy(settings.wifi_ssid, req[0]);
-              strcpy(settings.wifi_code, req[1]);
+              urldecode(req[0]); //Serial.println(req[0]);
+              urldecode(req[1]); //Serial.println(req[1]);
+              if(strcmp(req[0], settings.wifi_ssid) || strcmp(req[1], settings.wifi_code))
+              {
+                strcpy(settings.wifi_ssid, req[0]);
+                strcpy(settings.wifi_code, req[1]);
+                flash_settings.write(settings); //Einstellungen speichern
+              }
+            }
+            else if(req_type==3)
+            {
+              urldecode(mqtt_server);
+              //Serial.println(mqtt_server);
+              strcpy(settings.mqtt_server, mqtt_server);
               flash_settings.write(settings); //Einstellungen speichern
             }
           }
@@ -975,6 +1045,17 @@ void webserver_service(void)
           }
           client.print(buf);
 
+          sprintf(buf,
+              "<br></span><br><hr><br>\r\n" \
+              "<br><b>MQTT Server</b>" \
+              "<form method=post>\r\n" \
+              "Hostname oder IP-Adresse <input name=3 size=20 maxlength=64 placeholder=MQTT Server value='%s'><br>\r\n" \
+              "<input type=submit value=Speichern> (Neustart erforderlich)\r\n" \
+              "</form>\r\n",
+              settings.mqtt_server
+          );
+          client.print(buf);
+      
           String fv = WiFi.firmwareVersion();
           byte mac[6];
           WiFi.macAddress(mac);
@@ -1693,6 +1774,23 @@ unsigned int wifi_start(void)
   return 0;
 }
 
+void mqtt_start() 
+{
+  if (settings.mqtt_server[0] == 0) 
+  {
+    Serial.println("no mqtt server configured");
+    Serial.println("");
+    return;
+  }
+  Serial.println("setting up mqtt client object");
+  byte mac[6];
+  WiFi.macAddress(mac); //MAC-Adresse abfragen
+  sprintf(mqtt_topic, "tele/co2/%x-%x", mac[1], mac[0]);
+
+  sprintf(mqtt_client_name, "CO2AMPEL-%X-%X", mac[1], mac[0]);
+
+  mqtt_client.setServer(settings.mqtt_server, 1883);
+}
 
 void setup()
 {
@@ -1871,6 +1969,8 @@ void setup()
     settings.ip_local     = IPAddress(WIFI_IP);
     settings.ip_gw        = IPAddress(WIFI_GW);
     settings.ip_dns       = IPAddress(WIFI_DNS);
+    settings.mqtt_server[0] = 0;
+    strcpy(settings.mqtt_server, MQTT_SERVER);
     settings.valid        = true;
     flash_settings.write(settings);
     //Standard Temperaturoffset
@@ -1972,6 +2072,11 @@ void setup()
     }
   }
 
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    mqtt_start();
+  }
+  
   //Messung starten
   co2_value = co2_average = STARTWERT;
   if(features & FEATURE_SCD30)
@@ -2062,6 +2167,7 @@ void loop()
 {
   static unsigned int dark=0, sw=0;
   static unsigned long t_switch=0, t_ampel=0, t_light=~((LICHT_INTERVALL*1000UL*60UL)-60000UL); //Lichtsensor nach 60s pruefen
+  static unsigned long t_mqtt=1000000;
   unsigned int overwrite=0;
 
   //serielle Befehle verarbeiten
@@ -2138,6 +2244,13 @@ void loop()
   else if(overwrite == 0)
   {
     return;
+  }
+
+  if((millis()-t_mqtt) > 10000) //MQTT Nachricht nur alle 10 Sek
+  {
+    t_mqtt = millis(); //Zeit speichern
+
+    send_data_mqtt();
   }
 
   //Ampel
