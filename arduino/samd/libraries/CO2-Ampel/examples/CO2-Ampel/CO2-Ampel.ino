@@ -2504,9 +2504,9 @@ void loop()
   }
 
   // analog dazu eine Vorwarnung 100ppm bevor die Buzzer-Warnung anfängt
-  if (co2_average < START_ROT_BLINKEN) {
+  if (co2_average < START_ROT_BLINKEN + settings.start_buzzer_extra) {
     notification_high_ppm_done = 0;  // Flag zurücksetzen, neue Benachrichtigung ermöglichen
-  } else if (co2_average > START_ROT_BLINKEN + 100) {
+  } else if (co2_average > START_ROT_BLINKEN + 100 + settings.start_buzzer_extra) {
     // Benachrichtigungs-Schwelle ist überschritten ("Vorwarnung buzzer")
     if (notification_high_ppm_done == 0) {
         long_short_beep();
