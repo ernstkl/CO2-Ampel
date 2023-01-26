@@ -174,7 +174,7 @@ unsigned int last_wifi_error=1234;
 
 char mqtt_topic[15];
 char mqtt_client_name[16];
-char mqtt_msg[5]; // maximal vierstellige Zahl plus null byte
+char mqtt_msg[1024];
 
 unsigned int features=0, remote_on=0, buzzer_timer=BUZZER_DELAY;
 unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
@@ -441,7 +441,32 @@ void send_data_mqtt(void) // Daten auf mqtt-topic senden: tele/co2/<ab-cd>
     Serial.println(" done.");
   }
 
-  sprintf(mqtt_msg, "%d", co2_average);
+  if(features & (FEATURE_LPS22HB|FEATURE_BMP280))
+  {
+    sprintf(mqtt_msg,
+        "{\r\n" \
+        " \"co2\": %i,\r\n" \
+        " \"temperature\": %.1f,\r\n" \
+        " \"humidity\": %.1f,\r\n" \
+        " \"pressure\": %.1f,\r\n" \
+        " \"temperature2\": %.1f,\r\n" \
+        " \"brightness\": %i\r\n" \
+        "}\r\n",
+        co2_average, temp_value, humi_value, pres_value, temp2_value, light_value
+    );
+  }
+  else
+  {
+    sprintf(mqtt_msg,
+        "{\r\n" \
+        " \"co2\": %i,\r\n" \
+        " \"temperature\": %.1f,\r\n" \
+        " \"humidity\": %.1f,\r\n" \
+        " \"brightness\": %i\r\n" \
+        "}\r\n",
+        co2_average, temp_value, humi_value, light_value
+    );
+  }
   mqtt_client.publish(mqtt_topic, mqtt_msg);
   mqtt_client.loop();  
 }
