@@ -807,7 +807,7 @@ void urldecode(char *src) //URL Parameter dekodieren
 
 void webserver_service(void)
 {
-  static unsigned long t_check=0;
+  static unsigned long t_check=0, t_fallback=0;
   unsigned int status;
 
   if((features & FEATURE_WINC1500) == 0)
@@ -843,7 +843,7 @@ void webserver_service(void)
       ap_fallback = 0;
     }
     else if((status == WL_AP_LISTENING) && //kein Client mit dem AP verbunden
-            ((millis()-t_check) > (1*60000UL))) //1min
+            ((millis()-t_fallback) > (1*60000UL))) //1min
     {
       if(wifi_start() == 0) //verbunden
       {
@@ -853,15 +853,12 @@ void webserver_service(void)
       {
         wifi_start_ap(); //AP wieder starten
       }
-      t_check = millis();
+      t_fallback = millis();
       return;
     }
   }
 
-  if(!ap_fallback)
-  {
-    t_check = millis(); //Zeit speichern fuer Neuverbindung nach 1min
-  }
+  t_check = millis(); //Zeit speichern fuer Neuverbindung nach 1min
 
   WiFiClient client = server.available();
   if(!client) //Client nicht verbunden
