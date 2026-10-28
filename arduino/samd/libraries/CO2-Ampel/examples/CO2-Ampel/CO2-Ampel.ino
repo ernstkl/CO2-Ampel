@@ -171,6 +171,7 @@ WiFiServer server(80); //Webserver Port 80
 WiFiClient mqtt_wifi_client;
 PubSubClient mqtt_client(mqtt_wifi_client);
 unsigned int last_wifi_error=1234;
+unsigned int ap_fallback=0; //1 = eigener AP, weil WiFi-Netzwerk beim Start nicht erreichbar war
 
 char mqtt_topic[15];
 char mqtt_client_name[16];
@@ -832,7 +833,36 @@ void webserver_service(void)
     return;
   }
 
-  t_check = millis(); //Zeit speichern fuer Neuverbindung nach 1min
+  // Nach gemeinsamem Stromausfall startet die Ampel evtl. schneller als der Router.
+  // Daher in den ersten 5min nach dem Start weiter versuchen, das WiFi-Netzwerk zu
+  // erreichen. Der eigene AP ist waehrend jedes Versuchs kurz geschlossen.
+  if(ap_fallback)
+  {
+    if(millis() > (5*60000UL)) //5min nach Start
+    {
+      ap_fallback = 0;
+    }
+    else if((status == WL_AP_LISTENING) && //kein Client mit dem AP verbunden
+            ((millis()-t_check) > (1*60000UL))) //1min
+    {
+      if(wifi_start() == 0) //verbunden
+      {
+        ap_fallback = 0;
+        mqtt_start();
+      }
+      else
+      {
+        wifi_start_ap(); //AP wieder starten
+      }
+      t_check = millis();
+      return;
+    }
+  }
+
+  if(!ap_fallback)
+  {
+    t_check = millis(); //Zeit speichern fuer Neuverbindung nach 1min
+  }
 
   WiFiClient client = server.available();
   if(!client) //Client nicht verbunden
@@ -2206,6 +2236,10 @@ void setup()
         {
           features &= ~FEATURE_WINC1500;
         }
+        else if(settings.wifi_ssid[0] != 0) //WiFi-Netzwerk konfiguriert, aber nicht erreichbar
+        {
+          ap_fallback = 1;
+        }
       }
       delay(2000); //2s warten
       if(features & FEATURE_USB)
@@ -2405,6 +2439,7 @@ void loop()
       if(features & FEATURE_WINC1500)
       {
         leds(FARBE_VIOLETT); //LEDs violett
+        ap_fallback = 0; //AP manuell gestartet, keine Neuverbindungsversuche
         wifi_start_ap();
       }
     }
