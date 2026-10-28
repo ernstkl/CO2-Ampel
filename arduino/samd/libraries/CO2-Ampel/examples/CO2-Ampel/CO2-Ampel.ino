@@ -34,7 +34,7 @@
   Die Kalibrierung des Sensors bleibt ebenfalls erhalten.
 */
 
-#define VERSION "25"
+#define VERSION "26"
 
 #define COVID      0 //1 = COVID CO2-Werte
 #define WIFI_AMPEL 0 //1 = Version mit WiFi/WLAN
@@ -1012,6 +1012,7 @@ void webserver_service(void)
               urldecode(req[1]); //Serial.println(req[1]);
               if(strcmp(req[0], settings.wifi_ssid) || strcmp(req[1], settings.wifi_code))
               {
+                //todo: Leerzeichen am Ende entfernen
                 strcpy(settings.wifi_ssid, req[0]);
                 strcpy(settings.wifi_code, req[1]);
                 flash_settings.write(settings); //Einstellungen speichern
@@ -1780,10 +1781,10 @@ unsigned int wifi_start_ap(void)
   // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
   sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
 
-  if((WiFi.status() == WL_CONNECTED) ||
-     (WiFi.status() == WL_AP_CONNECTED))
+  if(WiFi.status() != WL_IDLE_STATUS)
   {
     WiFi.end(); //WiFi.disconnect();
+    //reset_mcu();
   }
 
   WiFi.hostname(ssid); //Hostname setzen
@@ -1822,10 +1823,10 @@ unsigned int wifi_start(void)
   // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
   sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
 
-  if((WiFi.status() == WL_CONNECTED) ||
-     (WiFi.status() == WL_AP_CONNECTED))
+  if(WiFi.status() != WL_IDLE_STATUS)
   {
     WiFi.end(); //WiFi.disconnect();
+    //reset_mcu();
   }
 
   WiFi.hostname(name); //Hostname setzen
@@ -1852,7 +1853,7 @@ unsigned int wifi_start(void)
     status_led(1000); //Status-LED
   }
 
-  if(!(WiFi.status() == WL_CONNECTED))
+  if(!(WiFi.status() == WL_CONNECTED)) //Verbindung fehlgeschlagen
   {
     return 1;
   }
@@ -1879,6 +1880,42 @@ void mqtt_start()
 
   mqtt_client.setServer(settings.mqtt_server, 1883);
 }
+
+void reset_mcu(void)
+{
+  if(features & FEATURE_USB)
+  {
+    Serial.println("Reset...");
+  }
+
+  status_led(0);
+  buzzer(0);
+  ws2812.setBrightness(HELLIGKEIT_DUNKEL); //dunkel
+  leds(FARBE_WEISS); //LEDs weiss
+
+  if(features & FEATURE_WINC1500)
+  {
+    WiFi.end(); //WiFi.disconnect();
+  }
+  if(features & FEATURE_SCD30)
+  {
+    scd30.StopMeasurement();
+    //scd30.reset; //soft reset
+  }
+  if(features & FEATURE_SCD4X)
+  {
+    scd4x.stopPeriodicMeasurement();
+  }
+
+  Wire.end();
+  Wire1.end();
+  Serial.end();
+
+  __disable_irq(); //disable interrupts
+  NVIC_SystemReset(); //reset
+  while(1);
+}
+
 
 void setup()
 {
