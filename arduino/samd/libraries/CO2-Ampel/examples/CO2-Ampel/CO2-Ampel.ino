@@ -170,10 +170,12 @@ WiFiServer server(80); //Webserver Port 80
 // network connection objects for MQTT
 WiFiClient mqtt_wifi_client;
 PubSubClient mqtt_client(mqtt_wifi_client);
+unsigned int last_wifi_error=1234;
+unsigned int ap_fallback=0; //1 = eigener AP, weil WiFi-Netzwerk beim Start nicht erreichbar war
 
 char mqtt_topic[15];
 char mqtt_client_name[16];
-char mqtt_msg[5]; // maximal vierstellige Zahl plus null byte
+char mqtt_msg[1024];
 
 unsigned int features=0, remote_on=0, buzzer_timer=BUZZER_DELAY;
 unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
@@ -411,17 +413,21 @@ void send_data_mqtt(void) // Daten auf mqtt-topic senden: tele/co2/<ab-cd>
     return;
   }
 
+  Serial.print("mqtt: last Wifi error status was ");
+  Serial.println(last_wifi_error);
+
   if (!(WiFi.status() == WL_CONNECTED))
   { 
     // only proceed in Wifi client mode
-    Serial.println("mqtt: no Wifi");
+    Serial.print("mqtt: no Wifi, status is ");
+    Serial.println(WiFi.status());
     return;
   }
 
 
   if (!mqtt_client.connected()) 
   {
-    // connect or reconnect - timeout is 2 (hardcoded in WiFiSocket.cpp)
+    // connect or reconnect - timeout is 20 s (hardcoded in WiFiSocket.cpp of the installed board package)
     Serial.print("mqtt: connecting to ");
     Serial.print(settings.mqtt_server);
     Serial.print(" ...");
@@ -436,7 +442,32 @@ void send_data_mqtt(void) // Daten auf mqtt-topic senden: tele/co2/<ab-cd>
     Serial.println(" done.");
   }
 
-  sprintf(mqtt_msg, "%d", co2_average);
+  if(features & (FEATURE_LPS22HB|FEATURE_BMP280))
+  {
+    sprintf(mqtt_msg,
+        "{\r\n" \
+        " \"co2\": %i,\r\n" \
+        " \"temperature\": %.1f,\r\n" \
+        " \"humidity\": %.1f,\r\n" \
+        " \"pressure\": %.1f,\r\n" \
+        " \"temperature2\": %.1f,\r\n" \
+        " \"brightness\": %i\r\n" \
+        "}\r\n",
+        co2_average, temp_value, humi_value, pres_value, temp2_value, light_value
+    );
+  }
+  else
+  {
+    sprintf(mqtt_msg,
+        "{\r\n" \
+        " \"co2\": %i,\r\n" \
+        " \"temperature\": %.1f,\r\n" \
+        " \"humidity\": %.1f,\r\n" \
+        " \"brightness\": %i\r\n" \
+        "}\r\n",
+        co2_average, temp_value, humi_value, light_value
+    );
+  }
   mqtt_client.publish(mqtt_topic, mqtt_msg);
   mqtt_client.loop();  
 }
@@ -786,23 +817,52 @@ void webserver_service(void)
 
   status = WiFi.status();
 
-  if(status == WL_IDLE_STATUS) //Verbindungsaufbau
-  {
-    return;
-  }
-  else if((status == WL_CONNECT_FAILED) ||
-          (status == WL_CONNECTION_LOST) || 
-          (status == WL_DISCONNECTED)) //Verbindungsabbruch
+  // Wenn der AP nicht mehr antwortet, gibt WiFi.begin() ein WL_IDLE_STATUS. Dies wie einen Verbindungsabbruch behandeln, damit eine Neuverbindung versucht wird.
+  if((status == WL_IDLE_STATUS) ||
+     (status == WL_NO_SHIELD) || //nach fehlgeschlagenem wifi_start()
+     (status == WL_CONNECT_FAILED) ||
+     (status == WL_CONNECTION_LOST) ||
+     (status == WL_DISCONNECTED)) //Verbindungsabbruch
   {
     if((millis()-t_check) > (1*60000UL)) //1min
     {
+      last_wifi_error = WiFi.status();
       t_check = millis();
       wifi_start();
     }
     return;
   }
 
-  t_check = millis(); //Zeit speichern fuer Neuverbindung nach 1min
+  // Nach gemeinsamem Stromausfall startet die Ampel evtl. schneller als der Router.
+  // Daher in den ersten 5min nach dem Start weiter versuchen, das WiFi-Netzwerk zu
+  // erreichen. Der eigene AP ist waehrend jedes Versuchs kurz geschlossen.
+  if(ap_fallback)
+  {
+    if(millis() > (5*60000UL)) //5min nach Start
+    {
+      ap_fallback = 0;
+    }
+    else if((status == WL_AP_LISTENING) && //kein Client mit dem AP verbunden
+            ((millis()-t_check) > (1*60000UL))) //1min
+    {
+      if(wifi_start() == 0) //verbunden
+      {
+        ap_fallback = 0;
+        mqtt_start();
+      }
+      else
+      {
+        wifi_start_ap(); //AP wieder starten
+      }
+      t_check = millis();
+      return;
+    }
+  }
+
+  if(!ap_fallback)
+  {
+    t_check = millis(); //Zeit speichern fuer Neuverbindung nach 1min
+  }
 
   WiFiClient client = server.available();
   if(!client) //Client nicht verbunden
@@ -1781,7 +1841,8 @@ unsigned int wifi_start_ap(void)
   // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
   sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
 
-  if(WiFi.status() != WL_IDLE_STATUS)
+  if((WiFi.status() != WL_IDLE_STATUS) &&
+     (WiFi.status() != WL_NO_SHIELD)) //WiFi.end() nur, wenn WiFi initialisiert ist
   {
     WiFi.end(); //WiFi.disconnect();
     //reset_mcu();
@@ -1823,7 +1884,8 @@ unsigned int wifi_start(void)
   // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
   sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
 
-  if(WiFi.status() != WL_IDLE_STATUS)
+  if((WiFi.status() != WL_IDLE_STATUS) &&
+     (WiFi.status() != WL_NO_SHIELD)) //WiFi.end() nur, wenn WiFi initialisiert ist
   {
     WiFi.end(); //WiFi.disconnect();
     //reset_mcu();
@@ -1855,6 +1917,8 @@ unsigned int wifi_start(void)
 
   if(!(WiFi.status() == WL_CONNECTED)) //Verbindung fehlgeschlagen
   {
+    WiFi.end(); //WiFi komplett zuruecksetzen, sauberer Zustand fuer naechsten Versuch
+    WiFi.status(); //WiFi neu initialisieren (Status danach WL_IDLE_STATUS), sonst haengt z.B. WiFi.macAddress()
     return 1;
   }
 
@@ -2172,6 +2236,10 @@ void setup()
         {
           features &= ~FEATURE_WINC1500;
         }
+        else if(settings.wifi_ssid[0] != 0) //WiFi-Netzwerk konfiguriert, aber nicht erreichbar
+        {
+          ap_fallback = 1;
+        }
       }
       delay(2000); //2s warten
       if(features & FEATURE_USB)
@@ -2371,6 +2439,7 @@ void loop()
       if(features & FEATURE_WINC1500)
       {
         leds(FARBE_VIOLETT); //LEDs violett
+        ap_fallback = 0; //AP manuell gestartet, keine Neuverbindungsversuche
         wifi_start_ap();
       }
     }
@@ -2473,9 +2542,9 @@ void loop()
   }
 
   // analog dazu eine Vorwarnung 100ppm bevor die Buzzer-Warnung anfängt
-  if (co2_average < START_ROT_BLINKEN) {
+  if (co2_average < START_ROT_BLINKEN + settings.start_buzzer_extra) {
     notification_high_ppm_done = 0;  // Flag zurücksetzen, neue Benachrichtigung ermöglichen
-  } else if (co2_average > START_ROT_BLINKEN + 100) {
+  } else if (co2_average > START_ROT_BLINKEN + 100 + settings.start_buzzer_extra) {
     // Benachrichtigungs-Schwelle ist überschritten ("Vorwarnung buzzer")
     if (notification_high_ppm_done == 0) {
         long_short_beep();
