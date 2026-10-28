@@ -14,6 +14,12 @@
   ppm of the buzzer threshold. So then you have time to start
   ventilating in time to prevent the buzzer really going loose. With
   hysteresis at 200 ppm below the buzzer threshold.
+  
+## Reconnect after AP loss
+
+If the Ampel has connected to an AP on startup, it will reliably reconnect
+to the AP across reboots of the AP. Even when the Ampel boots faster
+the the AP.
 
 ## Remote start of calibration
 
@@ -29,12 +35,12 @@
 
 ## Minimal MQTT client code
 
-* If an MQTT server name is configured, the plain CO2 value is sent to
-  a device dependent topic as a string. The topic is chosen
-  automatically, similar to the Ampel network name. Configuration of
-  the MQTT server name can be done via the web interface or via a
-  #define statement in the code. There are no other configuration
-  options.
+* If an MQTT server name is configured, the CO2 value, pressure etc
+  are sent to a device dependent topic tele/co2/xx-yy in JSON format.
+  The xx-yy in the topic is derived from the MAC address, like for the
+  Ampels's network name.  Configuration of the MQTT server name can be
+  done via the web interface or via a #define statement in the
+  code. There are no other configuration options.
 
 ## Configure a buzzer threshold increase via the web interface
 
