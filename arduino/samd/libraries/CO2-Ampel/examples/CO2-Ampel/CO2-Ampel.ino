@@ -171,13 +171,13 @@ WiFiServer server(80); //Webserver Port 80
 WiFiClient mqtt_wifi_client;
 PubSubClient mqtt_client(mqtt_wifi_client);
 unsigned int last_wifi_error=1234;
-unsigned int ap_fallback=0; //1 = eigener AP, weil WiFi-Netzwerk beim Start nicht erreichbar war
 
 char mqtt_topic[15];
 char mqtt_client_name[16];
 char mqtt_msg[1024];
 
 unsigned int features=0, remote_on=0, buzzer_timer=BUZZER_DELAY;
+unsigned int ap_fallback=0; //1 = eigener AP, weil WiFi-Netzwerk beim Start nicht erreichbar war
 unsigned int co2_value=STARTWERT, co2_average=STARTWERT, light_value=1024;
 float temp_value=20, temp_offset=TEMP_OFFSET, humi_value=50, pres_value=1013, pres_last=1013, temp2_value=20;
 
@@ -848,7 +848,6 @@ void webserver_service(void)
       if(wifi_start() == 0) //verbunden
       {
         ap_fallback = 0;
-        mqtt_start();
       }
       else
       {
@@ -1836,10 +1835,9 @@ unsigned int wifi_start_ap(void)
   }
 
   WiFi.macAddress(mac); //MAC-Adresse abfragen
-  sprintf(ssid, "CO2AMPEL-%X-%X", mac[1], mac[0]);
-
   // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
   sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
+  sprintf(ssid, "CO2AMPEL-%X-%X", mac[1], mac[0]);
 
   if((WiFi.status() != WL_IDLE_STATUS) &&
      (WiFi.status() != WL_NO_SHIELD)) //WiFi.end() nur, wenn WiFi initialisiert ist
@@ -1879,10 +1877,9 @@ unsigned int wifi_start(void)
   }
 
   WiFi.macAddress(mac); //MAC-Adresse abfragen
-  sprintf(name, "CO2AMPEL-%X-%X", mac[1], mac[0]);
-
   // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
   sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
+  sprintf(name, "CO2AMPEL-%X-%X", mac[1], mac[0]);
 
   if((WiFi.status() != WL_IDLE_STATUS) &&
      (WiFi.status() != WL_NO_SHIELD)) //WiFi.end() nur, wenn WiFi initialisiert ist
@@ -1923,6 +1920,7 @@ unsigned int wifi_start(void)
   }
 
   server.begin(); //starte Webserver
+  mqtt_start(); //MQTT-Client einrichten
 
   return 0;
 }
@@ -2269,11 +2267,6 @@ void setup()
     }
   }
 
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    mqtt_start();
-  }
-  
   //Messung starten
   co2_value = co2_average = STARTWERT;
   if(features & FEATURE_SCD30)
