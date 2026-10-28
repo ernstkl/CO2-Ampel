@@ -818,6 +818,7 @@ void webserver_service(void)
 
   // Wenn der AP nicht mehr antwortet, gibt WiFi.begin() ein WL_IDLE_STATUS. Dies wie einen Verbindungsabbruch behandeln, damit eine Neuverbindung versucht wird.
   if((status == WL_IDLE_STATUS) ||
+     (status == WL_NO_SHIELD) || //nach fehlgeschlagenem wifi_start()
      (status == WL_CONNECT_FAILED) ||
      (status == WL_CONNECTION_LOST) ||
      (status == WL_DISCONNECTED)) //Verbindungsabbruch
@@ -1810,7 +1811,8 @@ unsigned int wifi_start_ap(void)
   // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
   sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
 
-  if(WiFi.status() != WL_IDLE_STATUS)
+  if((WiFi.status() != WL_IDLE_STATUS) &&
+     (WiFi.status() != WL_NO_SHIELD)) //WiFi.end() nur, wenn WiFi initialisiert ist
   {
     WiFi.end(); //WiFi.disconnect();
     //reset_mcu();
@@ -1852,7 +1854,8 @@ unsigned int wifi_start(void)
   // einfacher exemplarspezifischer Passcode für die Sensor-Kalibrierung
   sprintf(calib_passcode, "%x%x", mac[1], mac[0]);
 
-  if(WiFi.status() != WL_IDLE_STATUS)
+  if((WiFi.status() != WL_IDLE_STATUS) &&
+     (WiFi.status() != WL_NO_SHIELD)) //WiFi.end() nur, wenn WiFi initialisiert ist
   {
     WiFi.end(); //WiFi.disconnect();
     //reset_mcu();
@@ -1884,6 +1887,8 @@ unsigned int wifi_start(void)
 
   if(!(WiFi.status() == WL_CONNECTED)) //Verbindung fehlgeschlagen
   {
+    WiFi.end(); //WiFi komplett zuruecksetzen, sauberer Zustand fuer naechsten Versuch
+    WiFi.status(); //WiFi neu initialisieren (Status danach WL_IDLE_STATUS), sonst haengt z.B. WiFi.macAddress()
     return 1;
   }
 
