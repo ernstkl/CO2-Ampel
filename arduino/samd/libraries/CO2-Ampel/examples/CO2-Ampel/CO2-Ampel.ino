@@ -717,13 +717,11 @@ void webserver_service(void)
 
   status = WiFi.status();
 
-  if(status == WL_IDLE_STATUS) //Verbindungsaufbau
-  {
-    return;
-  }
-  else if((status == WL_CONNECT_FAILED) ||
-          (status == WL_CONNECTION_LOST) || 
-          (status == WL_DISCONNECTED)) //Verbindungsabbruch
+  // Wenn der AP nicht mehr antwortet, gibt WiFi.begin() ein WL_IDLE_STATUS. Dies wie einen Verbindungsabbruch behandeln, damit eine Neuverbindung versucht wird.
+  if((status == WL_IDLE_STATUS) ||
+     (status == WL_CONNECT_FAILED) ||
+     (status == WL_CONNECTION_LOST) ||
+     (status == WL_DISCONNECTED)) //Verbindungsabbruch
   {
     if((millis()-t_check) > (1*60000UL)) //1min
     {
