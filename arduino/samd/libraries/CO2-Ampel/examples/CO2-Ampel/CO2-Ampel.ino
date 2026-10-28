@@ -27,7 +27,7 @@
     5=X      - Range/Bereich 5 Start (400-10000) - rot + Buzzer
 */
 
-#define VERSION "26"
+#define VERSION "27"
 
 #define COVID      0 //1 = COVID CO2-Werte
 #define WIFI_AMPEL 0 //1 = Version mit WiFi/WLAN
